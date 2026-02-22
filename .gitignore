@@ -1,0 +1,26 @@
+# Gowin / FPGA build outputs (generic)
+*.fs
+*.fsdb
+*.o
+*.obj
+*.log
+*.jou
+*.str
+*.rpt
+*.bit
+*.bin
+
+# Common build dirs
+impl/
+syn/
+pnr/
+sim/
+build/
+out/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
