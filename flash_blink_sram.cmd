@@ -21,6 +21,7 @@ set "PROJECT_DIR=%ROOT_DIR%\blink_test"
 set "PROJECT_GPRJ=%PROJECT_DIR%\blink_test.gprj"
 set "PROJECT_GPRJ_FWD=%PROJECT_GPRJ:\=/%"
 set "FS_FILE=%PROJECT_DIR%\impl\pnr\blink_test.fs"
+set "SYN_LOG=%PROJECT_DIR%\impl\gwsynthesis\blink_test.log"
 set "PNR_LOG=%PROJECT_DIR%\impl\pnr\blink_test.log"
 
 if not exist "%PROJECT_GPRJ%" (
@@ -82,7 +83,7 @@ echo [1/2] Build (synthesis + pnr)...
 set "TCL_FILE=%TEMP%\nand-fpga-blink-build-%RANDOM%%RANDOM%.tcl"
 (
   echo open_project "%PROJECT_GPRJ_FWD%"
-  echo set_option -use_sspi_as_gpio 0
+  echo set_option -use_sspi_as_gpio 1
   echo run all
   echo exit
 ) > "%TCL_FILE%"
@@ -94,6 +95,14 @@ del "%TCL_FILE%" >nul 2>&1
 if not "%BUILD_RC%"=="0" (
   echo [ERROR] Build failed with exit code %BUILD_RC%.
   exit /b %BUILD_RC%
+)
+
+if exist "%SYN_LOG%" (
+  findstr /C:"ERROR (" "%SYN_LOG%" >nul
+  if not errorlevel 1 (
+    echo [ERROR] Synthesis reported errors. Check "%SYN_LOG%"
+    exit /b 1
+  )
 )
 
 if exist "%PNR_LOG%" (
