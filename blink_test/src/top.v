@@ -1,192 +1,168 @@
 module top(
     input  wire Clock,
     output reg  led,
-
-    output wire tm_stb,
-    output wire tm_clk,
+    output reg  tm_stb,
+    output reg  tm_clk,
     inout  wire tm_dio
 );
 
-    // ------------------------------------------------------------
-    // Simple scheduler: pulses for init/refresh/keys every N ms
-    // ------------------------------------------------------------
-    reg [21:0] ms_div = 0;
-    reg tick_1ms = 0;
+    // Direct-write-only TM1638 test:
+    // 1) 0x40
+    // 2) 0xC0 + 16 data bytes (all segments ON, all leds ON)
+    // 3) 0x8F
+    // Repeat forever.
 
-    // 27MHz -> 1ms is 27_000 cycles
+    reg dio_out = 1'b1;
+    assign tm_dio = dio_out;
+
+    localparam integer STEP_DIV = 270; // 27MHz -> 100kHz step
+    localparam integer STEP_W = $clog2(STEP_DIV);
+    reg [STEP_W-1:0] step_cnt = 0;
+    reg step = 1'b0;
+
     always @(posedge Clock) begin
-        if (ms_div == 27_000 - 1) begin
-            ms_div <= 0;
-            tick_1ms <= 1'b1;
+        if (step_cnt == STEP_DIV - 1) begin
+            step_cnt <= 0;
+            step <= 1'b1;
         end else begin
-            ms_div <= ms_div + 1'b1;
-            tick_1ms <= 1'b0;
+            step_cnt <= step_cnt + 1'b1;
+            step <= 1'b0;
         end
     end
 
-    reg [7:0]  t_ms = 0;
-    reg init_req = 0;
-    reg refresh_req = 0;
-    reg keys_req = 0;
+    localparam S_BOOT       = 3'd0;
+    localparam S_FRAME_ST   = 3'd1;
+    localparam S_BIT_LO     = 3'd2;
+    localparam S_BIT_HI     = 3'd3;
+    localparam S_NEXT_BYTE  = 3'd4;
+    localparam S_FRAME_END  = 3'd5;
+    localparam S_GAP        = 3'd6;
 
-    // ------------------------------------------------------------
-    // TM1638 instance
-    // ------------------------------------------------------------
-    wire busy, done;
-    wire [31:0] keys;
-    wire keys_valid;
+    reg [2:0] state = S_BOOT;
+    reg [1:0] frame = 0;
+    reg [4:0] byte_idx = 0;
+    reg [2:0] bit_idx = 0;
+    reg [7:0] cur_byte = 8'h00;
+    reg [15:0] boot_wait = 0;
+    reg [7:0] gap_cnt = 0;
 
-    reg [2:0] brightness = 3'd7;
-    reg display_on = 1'b1;
-
-    reg ram_we = 0;
-    reg [3:0] ram_waddr = 0;
-    reg [7:0] ram_wdata = 0;
-
-    tm1638 #(
-        .CLK_HZ(27_000_000),
-        .BIT_HZ(10_000)
-    ) u_tm (
-        .clk(Clock),
-
-        .stb(tm_stb),
-        .sclk(tm_clk),
-        .dio(tm_dio),
-
-        .init_req(init_req),
-        .refresh_req(refresh_req),
-        .keys_req(keys_req),
-
-        .brightness(brightness),
-        .display_on(display_on),
-
-        .ram_we(ram_we),
-        .ram_waddr(ram_waddr),
-        .ram_wdata(ram_wdata),
-
-        .busy(busy),
-        .done(done),
-        .keys(keys),
-        .keys_valid(keys_valid)
-    );
-
-    // ------------------------------------------------------------
-    // HEX -> 7seg (common TM1638 style; may need segment order tweak)
-    // returns bits: [0]=a [1]=b [2]=c [3]=d [4]=e [5]=f [6]=g [7]=dp
-    // ------------------------------------------------------------
-    function [7:0] hex7seg(input [3:0] v);
+    function [4:0] frame_len;
+        input [1:0] f;
         begin
-            case (v)
-                4'h0: hex7seg = 8'b00111111;
-                4'h1: hex7seg = 8'b00000110;
-                4'h2: hex7seg = 8'b01011011;
-                4'h3: hex7seg = 8'b01001111;
-                4'h4: hex7seg = 8'b01100110;
-                4'h5: hex7seg = 8'b01101101;
-                4'h6: hex7seg = 8'b01111101;
-                4'h7: hex7seg = 8'b00000111;
-                4'h8: hex7seg = 8'b01111111;
-                4'h9: hex7seg = 8'b01101111;
-                4'hA: hex7seg = 8'b01110111;
-                4'hB: hex7seg = 8'b01111100;
-                4'hC: hex7seg = 8'b00111001;
-                4'hD: hex7seg = 8'b01011110;
-                4'hE: hex7seg = 8'b01111001;
-                4'hF: hex7seg = 8'b01110001;
+            case (f)
+                2'd0: frame_len = 5'd1;   // 0x40
+                2'd1: frame_len = 5'd17;  // 0xC0 + 16 bytes
+                2'd2: frame_len = 5'd1;   // 0x8F
+                default: frame_len = 5'd1;
             endcase
         end
     endfunction
 
-    // ------------------------------------------------------------
-    // Write helpers into shadow RAM:
-    // digit i uses addr = i*2 (segments)
-    // led   i uses addr = i*2 + 1 (led bits, usually bit0)
-    // ------------------------------------------------------------
-    task write_digit(input [2:0] idx, input [7:0] seg);
+    function [7:0] frame_byte;
+        input [1:0] f;
+        input [4:0] idx;
+        reg [3:0] a;
         begin
-            ram_we    <= 1'b1;
-            ram_waddr <= {idx, 1'b0}; // *2
-            ram_wdata <= seg;
-        end
-    endtask
-
-    task write_led(input [2:0] idx, input on);
-        begin
-            ram_we    <= 1'b1;
-            ram_waddr <= {idx, 1'b0} + 1; // *2+1
-            ram_wdata <= on ? 8'h01 : 8'h00;
-        end
-    endtask
-
-    // ------------------------------------------------------------
-    // simple sequencer for RAM writes (since ram_we is 1-cycle)
-    // ------------------------------------------------------------
-    reg [4:0] sub = 0;
-    reg started = 0;
-    reg [31:0] keys_latched = 0;
-    reg [7:0] buttons_latched = 0;
-
-    // Map TM1638 key-scan matrix to 8 front-panel buttons.
-    // Reverse order so button position matches digit position on this board.
-    function [7:0] decode_buttons(input [31:0] raw);
-        integer k;
-        begin
-            decode_buttons = 8'h00;
-            for (k = 0; k < 8; k = k + 1) begin
-                decode_buttons[k] = raw[((7-k)*4)];
-            end
+            case (f)
+                2'd0: frame_byte = 8'h40;
+                2'd1: begin
+                    if (idx == 0) begin
+                        frame_byte = 8'hC0;
+                    end else begin
+                        a = idx - 1;
+                        // even addr: segment byte, odd addr: led byte
+                        frame_byte = a[0] ? 8'h01 : 8'hFF;
+                    end
+                end
+                2'd2: frame_byte = 8'h8F; // display ON, brightness max
+                default: frame_byte = 8'h00;
+            endcase
         end
     endfunction
 
     initial begin
-        led = 0;
+        led = 1'b0;
+        tm_stb = 1'b1;
+        tm_clk = 1'b1;
     end
 
     always @(posedge Clock) begin
-        init_req    <= 1'b0;
-        refresh_req <= 1'b0;
-        keys_req    <= 1'b0;
-        ram_we      <= 1'b0;
+        if (step) begin
+            case (state)
+                S_BOOT: begin
+                    tm_stb <= 1'b1;
+                    tm_clk <= 1'b1;
+                    dio_out <= 1'b1;
+                    if (boot_wait == 16'd20000) begin
+                        frame <= 0;
+                        byte_idx <= 0;
+                        state <= S_FRAME_ST;
+                    end else begin
+                        boot_wait <= boot_wait + 1'b1;
+                    end
+                end
 
-        if (tick_1ms) begin
-            t_ms <= t_ms + 1'b1;
+                S_FRAME_ST: begin
+                    tm_stb <= 1'b0;
+                    tm_clk <= 1'b1;
+                    dio_out <= 1'b1;
+                    byte_idx <= 0;
+                    bit_idx <= 0;
+                    cur_byte <= frame_byte(frame, 0);
+                    state <= S_BIT_LO;
+                end
 
-            // once at boot: init
-            if (!started) begin
-                started <= 1'b1;
-                init_req <= 1'b1;
-            end
+                S_BIT_LO: begin
+                    tm_clk <= 1'b0;
+                    dio_out <= cur_byte[bit_idx];
+                    state <= S_BIT_HI;
+                end
 
-            // periodic: every 50ms request keys
-            if (t_ms == 50) begin
-                t_ms <= 0;
-                keys_req <= 1'b1;
-            end
-        end
+                S_BIT_HI: begin
+                    tm_clk <= 1'b1;
+                    if (bit_idx == 3'd7) begin
+                        state <= S_NEXT_BYTE;
+                    end else begin
+                        bit_idx <= bit_idx + 1'b1;
+                        state <= S_BIT_LO;
+                    end
+                end
 
-        // latch keys when new
-        if (keys_valid) begin
-            keys_latched <= keys;
-            buttons_latched <= decode_buttons(keys);
-            // led <= ~led; // activity indicator
-            sub <= 0;    // trigger RAM update below
-        end
+                S_NEXT_BYTE: begin
+                    if (byte_idx + 1 < frame_len(frame)) begin
+                        byte_idx <= byte_idx + 1'b1;
+                        bit_idx <= 0;
+                        cur_byte <= frame_byte(frame, byte_idx + 1'b1);
+                        state <= S_BIT_LO;
+                    end else begin
+                        state <= S_FRAME_END;
+                    end
+                end
 
-        // After we got keys, update RAM in few cycles then refresh
-        // sub steps: write 8 digits + 8 leds, then refresh_req
-        if (!busy) begin
-            if (sub < 8) begin
-                // show "2" on pressed button position, otherwise "0"
-                write_digit(sub[2:0], hex7seg(buttons_latched[sub] ? 4'h3 : 4'h8));
-                sub <= sub + 1'b1;
-            end else if (sub < 16) begin
-                // led under pressed button
-                write_led(sub[2:0], buttons_latched[sub-8]);
-                sub <= sub + 1'b1;
-            end else if (sub == 16) begin
-                refresh_req <= 1'b1;
-                sub <= 17;
-            end
+                S_FRAME_END: begin
+                    tm_stb <= 1'b1;
+                    tm_clk <= 1'b1;
+                    dio_out <= 1'b1;
+                    gap_cnt <= 0;
+                    state <= S_GAP;
+                end
+
+                S_GAP: begin
+                    if (gap_cnt == 8'd20) begin
+                        if (frame == 2'd2) begin
+                            frame <= 0;
+                            led <= ~led; // heartbeat when full script done
+                        end else begin
+                            frame <= frame + 1'b1;
+                        end
+                        state <= S_FRAME_ST;
+                    end else begin
+                        gap_cnt <= gap_cnt + 1'b1;
+                    end
+                end
+
+                default: state <= S_BOOT;
+            endcase
         end
     end
 
