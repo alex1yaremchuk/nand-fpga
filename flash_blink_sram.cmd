@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 
-rem One-command build + SRAM program for blink_test (Tang Primer 20K Dock).
+rem One-command build + SRAM program for hack_computer (Tang Primer 20K Dock).
 rem Usage:
 rem   flash_blink_sram.cmd
 rem   flash_blink_sram.cmd [cable_index] [device]
@@ -17,12 +17,13 @@ if not "%~2"=="" set "DEVICE=%~2"
 set "ROOT_DIR=%~dp0"
 if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"
 
-set "PROJECT_DIR=%ROOT_DIR%\blink_test"
-set "PROJECT_GPRJ=%PROJECT_DIR%\blink_test.gprj"
+set "PROJECT_NAME=hack_computer"
+set "PROJECT_DIR=%ROOT_DIR%\%PROJECT_NAME%"
+set "PROJECT_GPRJ=%PROJECT_DIR%\%PROJECT_NAME%.gprj"
 set "PROJECT_GPRJ_FWD=%PROJECT_GPRJ:\=/%"
-set "FS_FILE=%PROJECT_DIR%\impl\pnr\blink_test.fs"
-set "SYN_LOG=%PROJECT_DIR%\impl\gwsynthesis\blink_test.log"
-set "PNR_LOG=%PROJECT_DIR%\impl\pnr\blink_test.log"
+set "FS_FILE=%PROJECT_DIR%\impl\pnr\%PROJECT_NAME%.fs"
+set "SYN_LOG=%PROJECT_DIR%\impl\gwsynthesis\%PROJECT_NAME%.log"
+set "PNR_LOG=%PROJECT_DIR%\impl\pnr\%PROJECT_NAME%.log"
 
 if not exist "%PROJECT_GPRJ%" (
   echo [ERROR] Project file not found: "%PROJECT_GPRJ%"
@@ -80,7 +81,7 @@ echo [INFO] Cable idx : %CABLE_INDEX%
 echo.
 echo [1/2] Build (synthesis + pnr)...
 
-set "TCL_FILE=%TEMP%\nand-fpga-blink-build-%RANDOM%%RANDOM%.tcl"
+set "TCL_FILE=%TEMP%\nand-fpga-%PROJECT_NAME%-build-%RANDOM%%RANDOM%.tcl"
 (
   echo open_project "%PROJECT_GPRJ_FWD%"
   echo set_option -use_sspi_as_gpio 1

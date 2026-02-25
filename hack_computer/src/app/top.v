@@ -20,17 +20,35 @@ module top(
     localparam integer TICKS_PER_MS = (CLK_HZ / 1000);
     localparam integer MS_W = (TICKS_PER_MS <= 2) ? 2 : $clog2(TICKS_PER_MS);
 
+    localparam [1:0] MODE_ALU  = 2'd0;
+    localparam [1:0] MODE_REG  = 2'd1;
+    localparam [1:0] MODE_RAM8 = 2'd2;
+
+    reg [1:0] view_mode = MODE_ALU;
+
     reg [DATA_W-1:0] op_a = 0;
     reg [DATA_W-1:0] op_b = 0;
     reg [3:0] op_sel = 0;
-    reg show_b = 1'b0;
 
     wire [DATA_W-1:0] alu_y;
     wire alu_zr;
     wire alu_ng;
     wire alu_carry;
     wire alu_ovf;
-    wire [DATA_W-1:0] rhs_val = show_b ? op_b : alu_y;
+
+    reg [DATA_W-1:0] mem_reg_d = 0;
+    reg mem_reg_load = 1'b0;
+    wire [DATA_W-1:0] mem_reg_q;
+
+    reg [DATA_W-1:0] ram8_d = 0;
+    reg ram8_load = 1'b0;
+    reg [2:0] ram8_addr = 0;
+    wire [DATA_W-1:0] ram8_q;
+
+    wire [DATA_W-1:0] rhs_val =
+        (view_mode == MODE_REG)  ? mem_reg_q :
+        (view_mode == MODE_RAM8) ? ram8_q :
+                                   alu_y;
 
     reg [127:0] frame_data = 0;
     reg [63:0] disp_digits = 0;
@@ -80,6 +98,17 @@ module top(
 
     integer i;
 
+    function [1:0] mode_next;
+        input [1:0] mode_cur;
+        begin
+            case (mode_cur)
+                MODE_ALU:  mode_next = MODE_REG;
+                MODE_REG:  mode_next = MODE_RAM8;
+                default:   mode_next = MODE_ALU;
+            endcase
+        end
+    endfunction
+
     function [7:0] hex7seg;
         input [3:0] v;
         begin
@@ -115,6 +144,25 @@ module top(
         .overflow(alu_ovf),
         .zr(alu_zr),
         .ng(alu_ng)
+    );
+
+    register_n #(
+        .WIDTH(DATA_W)
+    ) u_reg_mem_stage1 (
+        .clk(Clock),
+        .load(mem_reg_load),
+        .d(mem_reg_d),
+        .q(mem_reg_q)
+    );
+
+    ram8_struct #(
+        .WIDTH(DATA_W)
+    ) u_ram8_stage2 (
+        .clk(Clock),
+        .load(ram8_load),
+        .addr(ram8_addr),
+        .d(ram8_d),
+        .q(ram8_q)
     );
 
     panel_mapper u_map (
@@ -179,27 +227,48 @@ module top(
         end
 
         if ((2 * HEX_DIGITS) < 8) begin
-            disp_digits[(2 * HEX_DIGITS)*8 +: 8] = hex7seg(op_sel);
+            if (view_mode == MODE_ALU) begin
+                disp_digits[(2 * HEX_DIGITS)*8 +: 8] = hex7seg(op_sel);
+            end else if (view_mode == MODE_REG) begin
+                disp_digits[(2 * HEX_DIGITS)*8 +: 8] = hex7seg(4'hD);
+            end else begin
+                disp_digits[(2 * HEX_DIGITS)*8 +: 8] = hex7seg(4'h8);
+            end
         end
+
         if ((2 * HEX_DIGITS + 1) < 8) begin
-            disp_digits[(2 * HEX_DIGITS + 1)*8 +: 8] = hex7seg({1'b0, show_b, alu_zr, alu_ng});
+            if (view_mode == MODE_ALU) begin
+                disp_digits[(2 * HEX_DIGITS + 1)*8 +: 8] = hex7seg({2'b00, alu_zr, alu_ng});
+            end else if (view_mode == MODE_REG) begin
+                disp_digits[(2 * HEX_DIGITS + 1)*8 +: 8] = hex7seg({3'b000, (mem_reg_q == 0)});
+            end else begin
+                disp_digits[(2 * HEX_DIGITS + 1)*8 +: 8] = hex7seg({1'b0, ram8_addr});
+            end
         end
+
         if ((2 * HEX_DIGITS + 2) < 8) begin
-            disp_digits[(2 * HEX_DIGITS + 2)*8 +: 8] = hex7seg({2'b00, alu_carry, alu_ovf});
+            if (view_mode == MODE_ALU) begin
+                disp_digits[(2 * HEX_DIGITS + 2)*8 +: 8] = hex7seg({2'b00, alu_carry, alu_ovf});
+            end else if (view_mode == MODE_REG) begin
+                disp_digits[(2 * HEX_DIGITS + 2)*8 +: 8] = hex7seg(4'h1);
+            end else begin
+                disp_digits[(2 * HEX_DIGITS + 2)*8 +: 8] = hex7seg(4'h2);
+            end
         end
     end
 
     // Build LED bytes.
     always @(*) begin
         disp_leds = 8'h00;
-        disp_leds[0] = show_b;
-        disp_leds[1] = alu_zr;
-        disp_leds[2] = alu_ng;
-        disp_leds[3] = alu_carry;
-        disp_leds[4] = alu_ovf;
-        disp_leds[5] = op_sel[0];
-        disp_leds[6] = op_sel[1];
-        disp_leds[7] = op_sel[2];
+
+        disp_leds[0] = (view_mode == MODE_REG);
+        disp_leds[1] = (view_mode == MODE_RAM8);
+        disp_leds[2] = ram8_addr[0];
+        disp_leds[3] = ram8_addr[1];
+        disp_leds[4] = ram8_addr[2];
+        disp_leds[5] = (rhs_val != {DATA_W{1'b0}});
+        disp_leds[6] = rhs_val[0];
+        disp_leds[7] = op_sel[0];
     end
 
     // Pack 8 digits + 8 leds to TM1638 RAM image.
@@ -213,6 +282,8 @@ module top(
 
     always @(posedge Clock) begin
         rx_start <= 1'b0;
+        mem_reg_load <= 1'b0;
+        ram8_load <= 1'b0;
 
         if (ms_div == TICKS_PER_MS - 1) begin
             ms_div <= 0;
@@ -237,32 +308,94 @@ module top(
         if (rx_done) begin
             rx_active <= 1'b0;
 
-            if (tm_edge[0]) op_a <= op_a + 1'b1; // A++
-            if (tm_edge[1]) op_a <= op_a - 1'b1; // A--
-            if (tm_edge[2]) op_b <= op_b + 1'b1; // B++
-            if (tm_edge[3]) op_b <= op_b - 1'b1; // B--
-            if (tm_edge[4]) op_sel <= op_sel + 1'b1; // OP++
-            if (tm_edge[5]) op_sel <= op_sel - 1'b1; // OP--
+            if (tm_edge[0]) op_a <= op_a + 1'b1; // data/A++
+            if (tm_edge[1]) op_a <= op_a - 1'b1; // data/A--
+            if (tm_edge[7]) view_mode <= mode_next(view_mode); // mode cycle
+
+            if (view_mode == MODE_ALU) begin
+                if (tm_edge[2]) op_b <= op_b + 1'b1; // B++
+                if (tm_edge[3]) op_b <= op_b - 1'b1; // B--
+                if (tm_edge[4]) op_sel <= op_sel + 1'b1; // OP++
+                if (tm_edge[5]) op_sel <= op_sel - 1'b1; // OP--
+            end else if (view_mode == MODE_REG) begin
+                if (tm_edge[2]) begin // REG <= A
+                    mem_reg_d <= op_a;
+                    mem_reg_load <= 1'b1;
+                end
+                if (tm_edge[3]) begin // REG <= 0
+                    mem_reg_d <= {DATA_W{1'b0}};
+                    mem_reg_load <= 1'b1;
+                end
+            end else begin
+                if (tm_edge[2]) begin // RAM[addr] <= A
+                    ram8_d <= op_a;
+                    ram8_load <= 1'b1;
+                end
+                if (tm_edge[3]) begin // A <= RAM[addr]
+                    op_a <= ram8_q;
+                end
+                if (tm_edge[4]) ram8_addr <= ram8_addr + 1'b1; // addr++
+                if (tm_edge[5]) ram8_addr <= ram8_addr - 1'b1; // addr--
+            end
+
             if (tm_edge[6]) begin
                 op_a <= {DATA_W{1'b0}};
                 op_b <= {DATA_W{1'b0}};
                 op_sel <= 4'h0;
+                view_mode <= MODE_ALU;
+                mem_reg_d <= {DATA_W{1'b0}};
+                mem_reg_load <= 1'b1;
+                ram8_addr <= 3'b000;
             end
-            if (tm_edge[7]) show_b <= ~show_b; // B/Y view toggle
 
             if (|tm_edge) led <= ~led;
             tm_prev <= tm_buttons;
         end
 
         // Board controls (debounced press pulse).
-        if (board_press[0]) begin op_a <= op_a + 1'b1; led <= ~led; end // s0
-        if (board_press[1]) begin op_b <= op_b + 1'b1; led <= ~led; end // s1
-        if (board_press[2]) begin op_sel <= op_sel + 1'b1; led <= ~led; end // s2
-        if (board_press[3]) begin show_b <= ~show_b; led <= ~led; end // s3
+        if (board_press[0]) begin
+            op_a <= op_a + 1'b1;
+            led <= ~led;
+        end
+
+        if (board_press[1]) begin
+            if (view_mode == MODE_ALU) begin
+                op_b <= op_b + 1'b1;
+            end else if (view_mode == MODE_REG) begin
+                mem_reg_d <= op_a;
+                mem_reg_load <= 1'b1;
+            end else begin
+                ram8_d <= op_a;
+                ram8_load <= 1'b1;
+            end
+            led <= ~led;
+        end
+
+        if (board_press[2]) begin
+            if (view_mode == MODE_ALU) begin
+                op_sel <= op_sel + 1'b1;
+            end else if (view_mode == MODE_REG) begin
+                mem_reg_d <= {DATA_W{1'b0}};
+                mem_reg_load <= 1'b1;
+            end else begin
+                ram8_addr <= ram8_addr + 1'b1;
+            end
+            led <= ~led;
+        end
+
+        if (board_press[3]) begin
+            view_mode <= mode_next(view_mode);
+            led <= ~led;
+        end
+
         if (board_press[4]) begin
             op_a <= {DATA_W{1'b0}};
             op_b <= {DATA_W{1'b0}};
             op_sel <= 4'h0;
+            view_mode <= MODE_ALU;
+            mem_reg_d <= {DATA_W{1'b0}};
+            mem_reg_load <= 1'b1;
+            ram8_addr <= 3'b000;
             led <= ~led;
         end
     end
