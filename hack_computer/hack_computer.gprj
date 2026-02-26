@@ -13,6 +13,12 @@
         <File path="src/io/tm1638_rx.v" type="file.verilog" enable="1"/>
         <File path="src/mem/register_n.v" type="file.verilog" enable="1"/>
         <File path="src/mem/ram8_struct.v" type="file.verilog" enable="1"/>
+        <File path="src/mem/ram64_struct.v" type="file.verilog" enable="1"/>
+        <File path="src/mem/ram512_struct.v" type="file.verilog" enable="1"/>
+        <File path="src/mem/ram_bram.v" type="file.verilog" enable="1"/>
+        <File path="src/mem/ram4k_select.v" type="file.verilog" enable="1"/>
+        <File path="src/mem/ram16k_select.v" type="file.verilog" enable="1"/>
+        <File path="src/mem/memory_map.v" type="file.verilog" enable="1"/>
         <File path="src/app/top.v" type="file.verilog" enable="1"/>
         <File path="src/constraints/hack_computer.cst" type="file.cst" enable="1"/>
     </FileList>
