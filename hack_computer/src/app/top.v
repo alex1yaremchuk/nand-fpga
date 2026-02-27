@@ -11,86 +11,125 @@ module top(
     output wire tm_stb,
     output wire tm_clk,
     inout  wire tm_dio
+`ifdef CFG_ENABLE_UART_BRIDGE
+    ,
+    input  wire uart_rx,
+    output wire uart_tx
+`endif
 );
 
     localparam integer CLK_HZ = 27_000_000;
     localparam integer POLL_CYCLES = 540_000; // 20 ms
     localparam integer DATA_W = `DATA_W;
+    localparam integer ADDR_W = 15;
+    localparam integer ROM_ADDR_W = `CFG_ROM_ADDR_W;
     localparam integer HEX_DIGITS = (DATA_W + 3) / 4;
     localparam integer TICKS_PER_MS = (CLK_HZ / 1000);
     localparam integer MS_W = (TICKS_PER_MS <= 2) ? 2 : $clog2(TICKS_PER_MS);
 
-    localparam [2:0] MODE_ALU    = 3'd0;
-    localparam [2:0] MODE_REG    = 3'd1;
-    localparam [2:0] MODE_RAM8   = 3'd2;
-    localparam [2:0] MODE_RAM64  = 3'd3;
-    localparam [2:0] MODE_RAM512 = 3'd4;
-    localparam [2:0] MODE_BRAM   = 3'd5;
-    localparam [2:0] MODE_RAM4K  = 3'd6;
-    localparam [2:0] MODE_MEMMAP = 3'd7;
-    localparam integer RAM4K_USE_BRAM = 1;
-    localparam integer MEMMAP_RAM16K_USE_BRAM = 1;
-    localparam integer MEMMAP_RAM16K_RAM4K_USE_BRAM = 1;
+    localparam [1:0] PAGE_ROM   = 2'd0;
+    localparam [1:0] PAGE_CPU   = 2'd1;
+    localparam [1:0] PAGE_MEM   = 2'd2;
+    localparam [1:0] PAGE_STATE = 2'd3;
 
-    reg [2:0] view_mode = MODE_ALU;
+    localparam integer MEMMAP_RAM16K_USE_BRAM = `CFG_RAM16K_USE_BRAM;
+    localparam integer MEMMAP_RAM16K_RAM4K_USE_BRAM = `CFG_RAM16K_RAM4K_USE_BRAM;
+    localparam integer MEMMAP_USE_SCREEN_BRAM = `CFG_USE_SCREEN_BRAM;
+    localparam integer MEMMAP_SCREEN_ADDR_W = `CFG_SCREEN_ADDR_W;
 
-    reg [DATA_W-1:0] op_a = 0;
-    reg [DATA_W-1:0] op_b = 0;
-    reg [3:0] op_sel = 0;
+    reg [1:0] page = PAGE_ROM;
+    reg [1:0] edit_nibble = 2'd0;
+    reg [DATA_W-1:0] edit_word = {DATA_W{1'b0}};
+    reg [ADDR_W-1:0] edit_addr = {ADDR_W{1'b0}};
 
-    wire [DATA_W-1:0] alu_y;
-    wire alu_zr;
-    wire alu_ng;
-    wire alu_carry;
-    wire alu_ovf;
+    reg rom_prog_we = 1'b0;
+    reg [ADDR_W-1:0] rom_prog_addr = {ADDR_W{1'b0}};
+    reg [DATA_W-1:0] rom_prog_data = {DATA_W{1'b0}};
 
-    reg [DATA_W-1:0] mem_reg_d = 0;
-    reg mem_reg_load = 1'b0;
-    wire [DATA_W-1:0] mem_reg_q;
+    reg mem_ui_we = 1'b0;
+    reg [DATA_W-1:0] mem_ui_data = {DATA_W{1'b0}};
 
-    reg [DATA_W-1:0] ram8_d = 0;
-    reg ram8_load = 1'b0;
-    reg [2:0] ram8_addr = 0;
-    wire [DATA_W-1:0] ram8_q;
+    reg cpu_step_req = 1'b0;
+    reg cpu_run = 1'b0;
+    reg cpu_reset_req = 1'b0;
 
-    reg [DATA_W-1:0] ram64_d = 0;
-    reg ram64_load = 1'b0;
-    reg [5:0] ram64_addr = 0;
-    wire [DATA_W-1:0] ram64_q;
+    wire [DATA_W-1:0] cpu_outM;
+    wire cpu_writeM;
+    wire [ADDR_W-1:0] cpu_addressM;
+    wire [ADDR_W-1:0] cpu_pc;
+    wire [ADDR_W-1:0] cpu_a_dbg;
+    wire [DATA_W-1:0] cpu_d_dbg;
 
-    reg [DATA_W-1:0] ram512_d = 0;
-    reg ram512_load = 1'b0;
-    reg [8:0] ram512_addr = 0;
-    wire [DATA_W-1:0] ram512_q;
+    wire [DATA_W-1:0] mem_q;
+    wire [DATA_W-1:0] rom_instr;
 
-    reg [DATA_W-1:0] ram_bram_d = 0;
-    reg ram_bram_load = 1'b0;
-    reg [8:0] ram_bram_addr = 0;
-    wire [DATA_W-1:0] ram_bram_q;
+`ifdef CFG_ENABLE_UART_BRIDGE
+    wire uart_cpu_step_pulse;
+    wire uart_cpu_reset_pulse;
+    wire uart_cpu_run_set;
+    wire uart_cpu_run_clr;
 
-    reg [DATA_W-1:0] ram4k_d = 0;
-    reg ram4k_load = 1'b0;
-    reg [11:0] ram4k_addr = 0;
-    wire [DATA_W-1:0] ram4k_q;
+    wire uart_mem_req;
+    wire uart_mem_we;
+    wire [ADDR_W-1:0] uart_mem_addr;
+    wire [DATA_W-1:0] uart_mem_data;
 
-    reg [DATA_W-1:0] memmap_d = 0;
-    reg memmap_load = 1'b0;
-    reg [14:0] memmap_addr = 0;
-    wire [DATA_W-1:0] memmap_q;
+    wire uart_rom_we;
+    wire uart_rom_rd_req;
+    wire [ADDR_W-1:0] uart_rom_addr;
+    wire [DATA_W-1:0] uart_rom_data;
 
-    wire [DATA_W-1:0] rhs_val =
-        (view_mode == MODE_REG)    ? mem_reg_q :
-        (view_mode == MODE_RAM8)   ? ram8_q :
-        (view_mode == MODE_RAM64)  ? ram64_q :
-        (view_mode == MODE_RAM512) ? ram512_q :
-        (view_mode == MODE_BRAM)   ? ram_bram_q :
-        (view_mode == MODE_RAM4K)  ? ram4k_q :
-        (view_mode == MODE_MEMMAP) ? memmap_q :
-                                      alu_y;
+    wire uart_kbd_we;
+    wire [DATA_W-1:0] uart_kbd_data;
 
-    reg [127:0] frame_data = 0;
-    reg [63:0] disp_digits = 0;
-    reg [7:0] disp_leds = 0;
+    reg [DATA_W-1:0] kbd_uart_word = {DATA_W{1'b0}};
+    wire uart_bridge_rst = cpu_reset_req;
+`endif
+
+`ifdef CFG_ENABLE_UART_BRIDGE
+    wire cpu_step = cpu_run_en | cpu_step_req | uart_cpu_step_pulse;
+    wire cpu_reset = cpu_reset_req | uart_cpu_reset_pulse;
+`else
+    wire cpu_step = cpu_run_en | cpu_step_req;
+    wire cpu_reset = cpu_reset_req;
+`endif
+
+    wire cpu_run_en = cpu_run & (page == PAGE_CPU);
+
+    wire mem_use_cpu = (page == PAGE_CPU);
+`ifdef CFG_ENABLE_UART_BRIDGE
+    wire mem_use_uart = uart_mem_req;
+    wire mem_load = mem_use_uart ? uart_mem_we :
+                    (mem_use_cpu ? cpu_writeM : mem_ui_we);
+    wire [ADDR_W-1:0] mem_addr = mem_use_uart ? uart_mem_addr :
+                                 (mem_use_cpu ? cpu_addressM : edit_addr);
+    wire [DATA_W-1:0] mem_d = mem_use_uart ? uart_mem_data :
+                              (mem_use_cpu ? cpu_outM : mem_ui_data);
+`else
+    wire mem_load = mem_use_cpu ? cpu_writeM : mem_ui_we;
+    wire [ADDR_W-1:0] mem_addr = mem_use_cpu ? cpu_addressM : edit_addr;
+    wire [DATA_W-1:0] mem_d = mem_use_cpu ? cpu_outM : mem_ui_data;
+`endif
+
+`ifdef CFG_ENABLE_UART_BRIDGE
+    wire rom_prog_we_eff = uart_rom_we ? 1'b1 : rom_prog_we;
+    wire [ADDR_W-1:0] rom_prog_addr_eff = uart_rom_we ? uart_rom_addr : rom_prog_addr;
+    wire [DATA_W-1:0] rom_prog_data_eff = uart_rom_we ? uart_rom_data : rom_prog_data;
+    wire [ADDR_W-1:0] rom_read_addr = uart_rom_rd_req ? uart_rom_addr :
+                                      ((page == PAGE_ROM) ? edit_addr : cpu_pc);
+`else
+    wire [ADDR_W-1:0] rom_read_addr = (page == PAGE_ROM) ? edit_addr : cpu_pc;
+    wire rom_prog_we_eff = rom_prog_we;
+    wire [ADDR_W-1:0] rom_prog_addr_eff = rom_prog_addr;
+    wire [DATA_W-1:0] rom_prog_data_eff = rom_prog_data;
+`endif
+
+    reg [DATA_W-1:0] lhs_val = {DATA_W{1'b0}};
+    reg [DATA_W-1:0] rhs_val = {DATA_W{1'b0}};
+
+    reg [127:0] frame_data = 128'h0;
+    reg [63:0] disp_digits = 64'h0;
+    reg [7:0] disp_leds = 8'h00;
 
     // TM1638 TX/RX arbitration
     wire tx_busy;
@@ -129,30 +168,16 @@ module top(
 
     // TM1638 decoded/ordered buttons and edge detect
     wire [7:0] tm_buttons;
-    reg  [7:0] tm_prev = 0;
+    reg [7:0] tm_prev = 8'h00;
     wire [7:0] tm_edge = tm_buttons & ~tm_prev;
+`ifdef CFG_ENABLE_UART_BRIDGE
+    wire [DATA_W-1:0] kbd_word = kbd_uart_word;
+`else
     wire [DATA_W-1:0] kbd_word = {{(DATA_W-8){1'b0}}, tm_buttons};
+`endif
 
     reg [21:0] key_poll_div = 0;
-
     integer i;
-
-    function [2:0] mode_next;
-        input [2:0] mode_cur;
-        begin
-            case (mode_cur)
-                MODE_ALU:    mode_next = MODE_REG;
-                MODE_REG:    mode_next = MODE_RAM8;
-                MODE_RAM8:   mode_next = MODE_RAM64;
-                MODE_RAM64:  mode_next = MODE_RAM512;
-                MODE_RAM512: mode_next = MODE_BRAM;
-                MODE_BRAM:   mode_next = MODE_RAM4K;
-                MODE_RAM4K:  mode_next = MODE_MEMMAP;
-                MODE_MEMMAP: mode_next = MODE_ALU;
-                default:     mode_next = MODE_ALU;
-            endcase
-        end
-    endfunction
 
     function [7:0] hex7seg;
         input [3:0] v;
@@ -177,93 +202,6 @@ module top(
             endcase
         end
     endfunction
-
-    alu_core #(
-        .DATA_W(DATA_W)
-    ) u_alu (
-        .a(op_a),
-        .b(op_b),
-        .op(op_sel),
-        .y(alu_y),
-        .carry_out(alu_carry),
-        .overflow(alu_ovf),
-        .zr(alu_zr),
-        .ng(alu_ng)
-    );
-
-    register_n #(
-        .WIDTH(DATA_W)
-    ) u_reg_mem_stage1 (
-        .clk(Clock),
-        .load(mem_reg_load),
-        .d(mem_reg_d),
-        .q(mem_reg_q)
-    );
-
-    ram8_struct #(
-        .WIDTH(DATA_W)
-    ) u_ram8_stage2 (
-        .clk(Clock),
-        .load(ram8_load),
-        .addr(ram8_addr),
-        .d(ram8_d),
-        .q(ram8_q)
-    );
-
-    ram64_struct #(
-        .WIDTH(DATA_W)
-    ) u_ram64_stage3 (
-        .clk(Clock),
-        .load(ram64_load),
-        .addr(ram64_addr),
-        .d(ram64_d),
-        .q(ram64_q)
-    );
-
-    ram512_struct #(
-        .WIDTH(DATA_W)
-    ) u_ram512_stage4 (
-        .clk(Clock),
-        .load(ram512_load),
-        .addr(ram512_addr),
-        .d(ram512_d),
-        .q(ram512_q)
-    );
-
-    ram_bram #(
-        .WIDTH(DATA_W),
-        .ADDR_W(9)
-    ) u_ram_bram_stage5 (
-        .clk(Clock),
-        .load(ram_bram_load),
-        .addr(ram_bram_addr),
-        .d(ram_bram_d),
-        .q(ram_bram_q)
-    );
-
-    ram4k_select #(
-        .WIDTH(DATA_W),
-        .USE_BRAM(RAM4K_USE_BRAM)
-    ) u_ram4k_stage6 (
-        .clk(Clock),
-        .load(ram4k_load),
-        .addr(ram4k_addr),
-        .d(ram4k_d),
-        .q(ram4k_q)
-    );
-
-    memory_map #(
-        .WIDTH(DATA_W),
-        .RAM16K_USE_BRAM(MEMMAP_RAM16K_USE_BRAM),
-        .RAM16K_RAM4K_USE_BRAM(MEMMAP_RAM16K_RAM4K_USE_BRAM)
-    ) u_memmap_stage7 (
-        .clk(Clock),
-        .load(memmap_load),
-        .addr(memmap_addr),
-        .d(memmap_d),
-        .kbd_in(kbd_word),
-        .q(memmap_q)
-    );
 
     panel_mapper u_map (
         .keys_raw(rx_keys),
@@ -313,96 +251,114 @@ module top(
         .keys(rx_keys)
     );
 
+`ifdef CFG_ENABLE_UART_BRIDGE
+    uart_bridge #(
+        .CLK_HZ(CLK_HZ),
+        .BAUD(`CFG_UART_BAUD),
+        .DATA_W(DATA_W),
+        .ADDR_W(ADDR_W)
+    ) u_uart_bridge (
+        .clk(Clock),
+        .rst(uart_bridge_rst),
+        .uart_rx(uart_rx),
+        .uart_tx(uart_tx),
+        .cpu_pc(cpu_pc),
+        .cpu_a(cpu_a_dbg),
+        .cpu_d(cpu_d_dbg),
+        .cpu_run_en(cpu_run_en),
+        .cpu_step_pulse(uart_cpu_step_pulse),
+        .cpu_reset_pulse(uart_cpu_reset_pulse),
+        .cpu_run_set(uart_cpu_run_set),
+        .cpu_run_clr(uart_cpu_run_clr),
+        .mem_req(uart_mem_req),
+        .mem_we(uart_mem_we),
+        .mem_addr(uart_mem_addr),
+        .mem_wdata(uart_mem_data),
+        .mem_rdata(mem_q),
+        .rom_we(uart_rom_we),
+        .rom_rd_req(uart_rom_rd_req),
+        .rom_addr(uart_rom_addr),
+        .rom_wdata(uart_rom_data),
+        .rom_rdata(rom_instr),
+        .kbd_we(uart_kbd_we),
+        .kbd_data(uart_kbd_data)
+    );
+`endif
+
+    memory_map #(
+        .WIDTH(DATA_W),
+        .RAM16K_USE_BRAM(MEMMAP_RAM16K_USE_BRAM),
+        .RAM16K_RAM4K_USE_BRAM(MEMMAP_RAM16K_RAM4K_USE_BRAM),
+        .USE_SCREEN_BRAM(MEMMAP_USE_SCREEN_BRAM),
+        .SCREEN_ADDR_W(MEMMAP_SCREEN_ADDR_W)
+    ) u_mem (
+        .clk(Clock),
+        .load(mem_load),
+        .addr(mem_addr),
+        .d(mem_d),
+        .kbd_in(kbd_word),
+        .q(mem_q)
+    );
+
+    rom32k_prog #(
+        .WIDTH(DATA_W),
+        .ROM_ADDR_W(ROM_ADDR_W)
+    ) u_rom (
+        .clk(Clock),
+        .prog_we(rom_prog_we_eff),
+        .prog_addr(rom_prog_addr_eff),
+        .prog_data(rom_prog_data_eff),
+        .rd_addr(rom_read_addr),
+        .q(rom_instr)
+    );
+
+    cpu_core #(
+        .DATA_W(DATA_W),
+        .ADDR_W(ADDR_W)
+    ) u_cpu (
+        .clk(Clock),
+        .reset(cpu_reset),
+        .step(cpu_step),
+        .instr(rom_instr),
+        .inM(mem_q),
+        .outM(cpu_outM),
+        .writeM(cpu_writeM),
+        .addressM(cpu_addressM),
+        .pc(cpu_pc),
+        .a_dbg(cpu_a_dbg),
+        .d_dbg(cpu_d_dbg)
+    );
+
+    always @(*) begin
+        case (page)
+            PAGE_ROM: begin
+                lhs_val = edit_word;
+                rhs_val = {{(DATA_W-ADDR_W){1'b0}}, edit_addr};
+            end
+            PAGE_CPU: begin
+                lhs_val = {{(DATA_W-ADDR_W){1'b0}}, cpu_a_dbg};
+                rhs_val = cpu_d_dbg;
+            end
+            PAGE_MEM: begin
+                lhs_val = edit_word;
+                rhs_val = mem_q;
+            end
+            default: begin
+                lhs_val = rom_instr;
+                rhs_val = {{(DATA_W-ADDR_W){1'b0}}, cpu_pc};
+            end
+        endcase
+    end
+
     // Build 8 digit bytes.
     always @(*) begin
         disp_digits = 64'h0;
-
         for (i = 0; i < HEX_DIGITS; i = i + 1) begin
             if (i < 8) begin
-                disp_digits[i*8 +: 8] = hex7seg(op_a[i*4 +: 4]);
+                disp_digits[i*8 +: 8] = hex7seg(lhs_val[i*4 +: 4]);
             end
             if ((i + HEX_DIGITS) < 8) begin
                 disp_digits[(i + HEX_DIGITS)*8 +: 8] = hex7seg(rhs_val[i*4 +: 4]);
-            end
-        end
-
-        if ((2 * HEX_DIGITS) < 8) begin
-            if (view_mode == MODE_ALU) begin
-                disp_digits[(2 * HEX_DIGITS)*8 +: 8] = hex7seg(op_sel);
-            end else if (view_mode == MODE_REG) begin
-                disp_digits[(2 * HEX_DIGITS)*8 +: 8] = hex7seg(4'hD);
-            end else if (view_mode == MODE_RAM8) begin
-                disp_digits[(2 * HEX_DIGITS)*8 +: 8] = hex7seg(4'h8);
-            end else if (view_mode == MODE_RAM64) begin
-                disp_digits[(2 * HEX_DIGITS)*8 +: 8] = hex7seg(4'h6);
-            end else if (view_mode == MODE_RAM512) begin
-                disp_digits[(2 * HEX_DIGITS)*8 +: 8] = hex7seg(4'h5);
-            end else if (view_mode == MODE_BRAM) begin
-                disp_digits[(2 * HEX_DIGITS)*8 +: 8] = hex7seg(4'hB);
-            end else if (view_mode == MODE_RAM4K) begin
-                disp_digits[(2 * HEX_DIGITS)*8 +: 8] = hex7seg(4'h4);
-            end else if (view_mode == MODE_MEMMAP) begin
-                disp_digits[(2 * HEX_DIGITS)*8 +: 8] = hex7seg(4'hE);
-            end else begin
-                disp_digits[(2 * HEX_DIGITS)*8 +: 8] = hex7seg(4'h0);
-            end
-        end
-
-        if ((2 * HEX_DIGITS + 1) < 8) begin
-            if (view_mode == MODE_ALU) begin
-                disp_digits[(2 * HEX_DIGITS + 1)*8 +: 8] = hex7seg({2'b00, alu_zr, alu_ng});
-            end else if (view_mode == MODE_REG) begin
-                disp_digits[(2 * HEX_DIGITS + 1)*8 +: 8] = hex7seg({3'b000, (mem_reg_q == 0)});
-            end else if (view_mode == MODE_RAM8) begin
-                disp_digits[(2 * HEX_DIGITS + 1)*8 +: 8] = hex7seg({1'b0, ram8_addr});
-            end else if (view_mode == MODE_RAM64) begin
-                disp_digits[(2 * HEX_DIGITS + 1)*8 +: 8] = hex7seg({1'b0, ram64_addr[5:3]});
-            end else if (view_mode == MODE_RAM512) begin
-                disp_digits[(2 * HEX_DIGITS + 1)*8 +: 8] = hex7seg({1'b0, ram512_addr[8:6]});
-            end else if (view_mode == MODE_BRAM) begin
-                disp_digits[(2 * HEX_DIGITS + 1)*8 +: 8] = hex7seg({1'b0, ram_bram_addr[8:6]});
-            end else if (view_mode == MODE_RAM4K) begin
-                disp_digits[(2 * HEX_DIGITS + 1)*8 +: 8] = hex7seg(ram4k_addr[11:8]);
-            end else if (view_mode == MODE_MEMMAP) begin
-                disp_digits[(2 * HEX_DIGITS + 1)*8 +: 8] = hex7seg({1'b0, memmap_addr[14:12]});
-            end else begin
-                disp_digits[(2 * HEX_DIGITS + 1)*8 +: 8] = hex7seg(4'h0);
-            end
-        end
-
-        if ((2 * HEX_DIGITS + 2) < 8) begin
-            if (view_mode == MODE_ALU) begin
-                disp_digits[(2 * HEX_DIGITS + 2)*8 +: 8] = hex7seg({2'b00, alu_carry, alu_ovf});
-            end else if (view_mode == MODE_REG) begin
-                disp_digits[(2 * HEX_DIGITS + 2)*8 +: 8] = hex7seg(4'h1);
-            end else if (view_mode == MODE_RAM8) begin
-                disp_digits[(2 * HEX_DIGITS + 2)*8 +: 8] = hex7seg(4'h2);
-            end else if (view_mode == MODE_RAM64) begin
-                disp_digits[(2 * HEX_DIGITS + 2)*8 +: 8] = hex7seg({1'b0, ram64_addr[2:0]});
-            end else if (view_mode == MODE_RAM512) begin
-                disp_digits[(2 * HEX_DIGITS + 2)*8 +: 8] = hex7seg({1'b0, ram512_addr[5:3]});
-            end else if (view_mode == MODE_BRAM) begin
-                disp_digits[(2 * HEX_DIGITS + 2)*8 +: 8] = hex7seg({1'b0, ram_bram_addr[5:3]});
-            end else if (view_mode == MODE_RAM4K) begin
-                disp_digits[(2 * HEX_DIGITS + 2)*8 +: 8] = hex7seg(ram4k_addr[7:4]);
-            end else if (view_mode == MODE_MEMMAP) begin
-                disp_digits[(2 * HEX_DIGITS + 2)*8 +: 8] = hex7seg(memmap_addr[7:4]);
-            end else begin
-                disp_digits[(2 * HEX_DIGITS + 2)*8 +: 8] = hex7seg(4'h0);
-            end
-        end
-
-        if ((2 * HEX_DIGITS + 3) < 8) begin
-            if (view_mode == MODE_RAM512) begin
-                disp_digits[(2 * HEX_DIGITS + 3)*8 +: 8] = hex7seg({1'b0, ram512_addr[2:0]});
-            end else if (view_mode == MODE_BRAM) begin
-                disp_digits[(2 * HEX_DIGITS + 3)*8 +: 8] = hex7seg({1'b0, ram_bram_addr[2:0]});
-            end else if (view_mode == MODE_RAM4K) begin
-                disp_digits[(2 * HEX_DIGITS + 3)*8 +: 8] = hex7seg(ram4k_addr[3:0]);
-            end else if (view_mode == MODE_MEMMAP) begin
-                disp_digits[(2 * HEX_DIGITS + 3)*8 +: 8] = hex7seg(memmap_addr[3:0]);
-            end else begin
-                disp_digits[(2 * HEX_DIGITS + 3)*8 +: 8] = hex7seg(4'h0);
             end
         end
     end
@@ -410,35 +366,12 @@ module top(
     // Build LED bytes.
     always @(*) begin
         disp_leds = 8'h00;
+        disp_leds[page] = 1'b1;
+        disp_leds[4 + edit_nibble] = 1'b1;
 
-        disp_leds[0] = (view_mode == MODE_REG);
-        disp_leds[1] = (view_mode == MODE_RAM8);
-        disp_leds[2] = (view_mode == MODE_RAM64);
-        disp_leds[3] = (view_mode == MODE_RAM512);
-        disp_leds[4] = (view_mode == MODE_BRAM);
-        disp_leds[5] = (view_mode == MODE_RAM4K) | (view_mode == MODE_MEMMAP);
-
-        if (view_mode == MODE_RAM8) begin
-            disp_leds[6] = ram8_addr[0];
-            disp_leds[7] = ram8_addr[1];
-        end else if (view_mode == MODE_RAM64) begin
-            disp_leds[6] = ram64_addr[0];
-            disp_leds[7] = ram64_addr[1];
-        end else if (view_mode == MODE_RAM512) begin
-            disp_leds[6] = ram512_addr[0];
-            disp_leds[7] = ram512_addr[1];
-        end else if (view_mode == MODE_BRAM) begin
-            disp_leds[6] = ram_bram_addr[0];
-            disp_leds[7] = ram_bram_addr[1];
-        end else if (view_mode == MODE_RAM4K) begin
-            disp_leds[6] = ram4k_addr[0];
-            disp_leds[7] = ram4k_addr[1];
-        end else if (view_mode == MODE_MEMMAP) begin
-            disp_leds[6] = memmap_addr[13];
-            disp_leds[7] = memmap_addr[14];
-        end else begin
-            disp_leds[6] = op_sel[0];
-            disp_leds[7] = op_sel[1];
+        if (page == PAGE_CPU) begin
+            disp_leds[6] = cpu_writeM;
+            disp_leds[7] = cpu_run_en;
         end
     end
 
@@ -453,13 +386,22 @@ module top(
 
     always @(posedge Clock) begin
         rx_start <= 1'b0;
-        mem_reg_load <= 1'b0;
-        ram8_load <= 1'b0;
-        ram64_load <= 1'b0;
-        ram512_load <= 1'b0;
-        ram_bram_load <= 1'b0;
-        ram4k_load <= 1'b0;
-        memmap_load <= 1'b0;
+        rom_prog_we <= 1'b0;
+        mem_ui_we <= 1'b0;
+        cpu_step_req <= 1'b0;
+        cpu_reset_req <= 1'b0;
+
+`ifdef CFG_ENABLE_UART_BRIDGE
+        if (uart_kbd_we) begin
+            kbd_uart_word <= uart_kbd_data;
+        end
+        if (uart_cpu_run_set) begin
+            cpu_run <= 1'b1;
+        end
+        if (uart_cpu_run_clr) begin
+            cpu_run <= 1'b0;
+        end
+`endif
 
         if (ms_div == TICKS_PER_MS - 1) begin
             ms_div <= 0;
@@ -484,99 +426,75 @@ module top(
         if (rx_done) begin
             rx_active <= 1'b0;
 
-            if (tm_edge[0]) op_a <= op_a + 1'b1; // data/A++
-            if (tm_edge[1]) op_a <= op_a - 1'b1; // data/A--
-            if (tm_edge[7]) view_mode <= mode_next(view_mode); // mode cycle
-
-            if (view_mode == MODE_ALU) begin
-                if (tm_edge[2]) op_b <= op_b + 1'b1; // B++
-                if (tm_edge[3]) op_b <= op_b - 1'b1; // B--
-                if (tm_edge[4]) op_sel <= op_sel + 1'b1; // OP++
-                if (tm_edge[5]) op_sel <= op_sel - 1'b1; // OP--
-            end else if (view_mode == MODE_REG) begin
-                if (tm_edge[2]) begin // REG <= A
-                    mem_reg_d <= op_a;
-                    mem_reg_load <= 1'b1;
-                end
-                if (tm_edge[3]) begin // REG <= 0
-                    mem_reg_d <= {DATA_W{1'b0}};
-                    mem_reg_load <= 1'b1;
-                end
-            end else if (view_mode == MODE_RAM8) begin
-                if (tm_edge[2]) begin // RAM8[addr] <= A
-                    ram8_d <= op_a;
-                    ram8_load <= 1'b1;
-                end
-                if (tm_edge[3]) begin // A <= RAM8[addr]
-                    op_a <= ram8_q;
-                end
-                if (tm_edge[4]) ram8_addr <= ram8_addr + 1'b1; // addr++
-                if (tm_edge[5]) ram8_addr <= ram8_addr - 1'b1; // addr--
-            end else if (view_mode == MODE_RAM64) begin
-                if (tm_edge[2]) begin // RAM64[addr] <= A
-                    ram64_d <= op_a;
-                    ram64_load <= 1'b1;
-                end
-                if (tm_edge[3]) begin // A <= RAM64[addr]
-                    op_a <= ram64_q;
-                end
-                if (tm_edge[4]) ram64_addr <= ram64_addr + 1'b1; // addr++
-                if (tm_edge[5]) ram64_addr <= ram64_addr - 1'b1; // addr--
-            end else if (view_mode == MODE_RAM512) begin
-                if (tm_edge[2]) begin // RAM512[addr] <= A
-                    ram512_d <= op_a;
-                    ram512_load <= 1'b1;
-                end
-                if (tm_edge[3]) begin // A <= RAM512[addr]
-                    op_a <= ram512_q;
-                end
-                if (tm_edge[4]) ram512_addr <= ram512_addr + 1'b1; // addr++
-                if (tm_edge[5]) ram512_addr <= ram512_addr - 1'b1; // addr--
-            end else if (view_mode == MODE_BRAM) begin
-                if (tm_edge[2]) begin // BRAM[addr] <= A
-                    ram_bram_d <= op_a;
-                    ram_bram_load <= 1'b1;
-                end
-                if (tm_edge[3]) begin // A <= BRAM[addr]
-                    op_a <= ram_bram_q;
-                end
-                if (tm_edge[4]) ram_bram_addr <= ram_bram_addr + 1'b1; // addr++
-                if (tm_edge[5]) ram_bram_addr <= ram_bram_addr - 1'b1; // addr--
-            end else if (view_mode == MODE_RAM4K) begin
-                if (tm_edge[2]) begin // RAM4K[addr] <= A
-                    ram4k_d <= op_a;
-                    ram4k_load <= 1'b1;
-                end
-                if (tm_edge[3]) begin // A <= RAM4K[addr]
-                    op_a <= ram4k_q;
-                end
-                if (tm_edge[4]) ram4k_addr <= ram4k_addr + 1'b1; // addr++
-                if (tm_edge[5]) ram4k_addr <= ram4k_addr - 1'b1; // addr--
-            end else if (view_mode == MODE_MEMMAP) begin
-                if (tm_edge[2]) begin // MEM[addr] <= A
-                    memmap_d <= op_a;
-                    memmap_load <= 1'b1;
-                end
-                if (tm_edge[3]) begin // A <= MEM[addr]
-                    op_a <= memmap_q;
-                end
-                if (tm_edge[4]) memmap_addr <= memmap_addr + 1'b1; // addr++
-                if (tm_edge[5]) memmap_addr <= memmap_addr - 1'b1; // addr--
+            if (tm_edge[0]) begin // selected nibble++
+                case (edit_nibble)
+                    2'd0: edit_word[3:0] <= edit_word[3:0] + 1'b1;
+                    2'd1: edit_word[7:4] <= edit_word[7:4] + 1'b1;
+                    2'd2: edit_word[11:8] <= edit_word[11:8] + 1'b1;
+                    default: edit_word[15:12] <= edit_word[15:12] + 1'b1;
+                endcase
             end
 
-            if (tm_edge[6]) begin
-                op_a <= {DATA_W{1'b0}};
-                op_b <= {DATA_W{1'b0}};
-                op_sel <= 4'h0;
-                view_mode <= MODE_ALU;
-                mem_reg_d <= {DATA_W{1'b0}};
-                mem_reg_load <= 1'b1;
-                ram8_addr <= 3'b000;
-                ram64_addr <= 6'b000000;
-                ram512_addr <= 9'b000000000;
-                ram_bram_addr <= 9'b000000000;
-                ram4k_addr <= 12'b000000000000;
-                memmap_addr <= 15'b000000000000000;
+            if (tm_edge[1]) begin // selected nibble--
+                case (edit_nibble)
+                    2'd0: edit_word[3:0] <= edit_word[3:0] - 1'b1;
+                    2'd1: edit_word[7:4] <= edit_word[7:4] - 1'b1;
+                    2'd2: edit_word[11:8] <= edit_word[11:8] - 1'b1;
+                    default: edit_word[15:12] <= edit_word[15:12] - 1'b1;
+                endcase
+            end
+
+            if (page == PAGE_CPU) begin
+                if (tm_edge[4]) cpu_run <= ~cpu_run; // run/pause
+            end else begin
+                if (tm_edge[4]) edit_nibble <= edit_nibble + 1'b1; // cursor++
+                if (tm_edge[5]) edit_nibble <= edit_nibble - 1'b1; // cursor--
+            end
+
+            if (tm_edge[7]) begin // page cycle
+                if (page == PAGE_CPU) begin
+                    cpu_run <= 1'b0;
+                end
+                page <= page + 1'b1;
+            end
+
+            if (page == PAGE_ROM) begin
+                if (tm_edge[2]) begin // ROM[addr] <= word
+                    rom_prog_we <= 1'b1;
+                    rom_prog_addr <= edit_addr;
+                    rom_prog_data <= edit_word;
+                    edit_addr <= edit_addr + 1'b1;
+                end
+                if (tm_edge[3]) begin
+                    cpu_reset_req <= 1'b1;
+                    cpu_run <= 1'b0;
+                end
+            end else if (page == PAGE_CPU) begin
+                if (tm_edge[2]) cpu_step_req <= 1'b1;
+                if (tm_edge[3]) begin
+                    cpu_reset_req <= 1'b1;
+                    cpu_run <= 1'b0;
+                end
+            end else if (page == PAGE_MEM) begin
+                if (tm_edge[2]) begin // MEM[addr] <= word
+                    mem_ui_we <= 1'b1;
+                    mem_ui_data <= edit_word;
+                end
+                if (tm_edge[3]) begin // word <= MEM[addr]
+                    edit_word <= mem_q;
+                end
+            end else begin
+                if (tm_edge[2]) edit_word <= rom_instr;
+                if (tm_edge[3]) edit_addr <= cpu_pc;
+            end
+
+            if (tm_edge[6]) begin // global reset
+                page <= PAGE_ROM;
+                edit_nibble <= 2'd0;
+                edit_word <= {DATA_W{1'b0}};
+                edit_addr <= {ADDR_W{1'b0}};
+                cpu_reset_req <= 1'b1;
+                cpu_run <= 1'b0;
             end
 
             if (|tm_edge) led <= ~led;
@@ -585,78 +503,39 @@ module top(
 
         // Board controls (debounced press pulse).
         if (board_press[0]) begin
-            op_a <= op_a + 1'b1;
+            edit_addr <= edit_addr + 1'b1;
             led <= ~led;
         end
 
         if (board_press[1]) begin
-            if (view_mode == MODE_ALU) begin
-                op_b <= op_b + 1'b1;
-            end else if (view_mode == MODE_REG) begin
-                mem_reg_d <= op_a;
-                mem_reg_load <= 1'b1;
-            end else if (view_mode == MODE_RAM8) begin
-                ram8_d <= op_a;
-                ram8_load <= 1'b1;
-            end else if (view_mode == MODE_RAM64) begin
-                ram64_d <= op_a;
-                ram64_load <= 1'b1;
-            end else if (view_mode == MODE_RAM512) begin
-                ram512_d <= op_a;
-                ram512_load <= 1'b1;
-            end else if (view_mode == MODE_BRAM) begin
-                ram_bram_d <= op_a;
-                ram_bram_load <= 1'b1;
-            end else if (view_mode == MODE_RAM4K) begin
-                ram4k_d <= op_a;
-                ram4k_load <= 1'b1;
-            end else if (view_mode == MODE_MEMMAP) begin
-                memmap_d <= op_a;
-                memmap_load <= 1'b1;
-            end
+            edit_addr <= edit_addr - 1'b1;
             led <= ~led;
         end
 
         if (board_press[2]) begin
-            if (view_mode == MODE_ALU) begin
-                op_sel <= op_sel + 1'b1;
-            end else if (view_mode == MODE_REG) begin
-                mem_reg_d <= {DATA_W{1'b0}};
-                mem_reg_load <= 1'b1;
-            end else if (view_mode == MODE_RAM8) begin
-                ram8_addr <= ram8_addr + 1'b1;
-            end else if (view_mode == MODE_RAM64) begin
-                ram64_addr <= ram64_addr + 1'b1;
-            end else if (view_mode == MODE_RAM512) begin
-                ram512_addr <= ram512_addr + 1'b1;
-            end else if (view_mode == MODE_BRAM) begin
-                ram_bram_addr <= ram_bram_addr + 1'b1;
-            end else if (view_mode == MODE_RAM4K) begin
-                ram4k_addr <= ram4k_addr + 1'b1;
-            end else if (view_mode == MODE_MEMMAP) begin
-                memmap_addr <= memmap_addr + 15'h1000;
+            if (page == PAGE_CPU) begin
+                cpu_run <= ~cpu_run; // run/pause shortcut
+            end else begin
+                edit_addr <= edit_addr + 15'h0100;
             end
             led <= ~led;
         end
 
         if (board_press[3]) begin
-            view_mode <= mode_next(view_mode);
+            if (page == PAGE_CPU) begin
+                cpu_run <= 1'b0;
+            end
+            page <= page + 1'b1;
             led <= ~led;
         end
 
         if (board_press[4]) begin
-            op_a <= {DATA_W{1'b0}};
-            op_b <= {DATA_W{1'b0}};
-            op_sel <= 4'h0;
-            view_mode <= MODE_ALU;
-            mem_reg_d <= {DATA_W{1'b0}};
-            mem_reg_load <= 1'b1;
-            ram8_addr <= 3'b000;
-            ram64_addr <= 6'b000000;
-            ram512_addr <= 9'b000000000;
-            ram_bram_addr <= 9'b000000000;
-            ram4k_addr <= 12'b000000000000;
-            memmap_addr <= 15'b000000000000000;
+            page <= PAGE_ROM;
+            edit_nibble <= 2'd0;
+            edit_word <= {DATA_W{1'b0}};
+            edit_addr <= {ADDR_W{1'b0}};
+            cpu_reset_req <= 1'b1;
+            cpu_run <= 1'b0;
             led <= ~led;
         end
     end

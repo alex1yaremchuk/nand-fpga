@@ -7,10 +7,14 @@
     <FileList>
         <File path="src/app/project_config.vh" type="file.verilog" enable="1"/>
         <File path="src/core/alu_core.v" type="file.verilog" enable="1"/>
+        <File path="src/core/cpu_core.v" type="file.verilog" enable="1"/>
         <File path="src/io/panel_mapper.v" type="file.verilog" enable="1"/>
         <File path="src/io/key_debounce.v" type="file.verilog" enable="1"/>
         <File path="src/io/tm1638_tx.v" type="file.verilog" enable="1"/>
         <File path="src/io/tm1638_rx.v" type="file.verilog" enable="1"/>
+        <File path="src/io/uart_rx.v" type="file.verilog" enable="1"/>
+        <File path="src/io/uart_tx.v" type="file.verilog" enable="1"/>
+        <File path="src/io/uart_bridge.v" type="file.verilog" enable="1"/>
         <File path="src/mem/register_n.v" type="file.verilog" enable="1"/>
         <File path="src/mem/ram8_struct.v" type="file.verilog" enable="1"/>
         <File path="src/mem/ram64_struct.v" type="file.verilog" enable="1"/>
@@ -18,6 +22,7 @@
         <File path="src/mem/ram_bram.v" type="file.verilog" enable="1"/>
         <File path="src/mem/ram4k_select.v" type="file.verilog" enable="1"/>
         <File path="src/mem/ram16k_select.v" type="file.verilog" enable="1"/>
+        <File path="src/mem/rom32k_prog.v" type="file.verilog" enable="1"/>
         <File path="src/mem/memory_map.v" type="file.verilog" enable="1"/>
         <File path="src/app/top.v" type="file.verilog" enable="1"/>
         <File path="src/constraints/hack_computer.cst" type="file.cst" enable="1"/>
