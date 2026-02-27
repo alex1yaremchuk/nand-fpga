@@ -27,6 +27,7 @@
 
 // UART monitor defaults.
 // Enable bridge by adding -DCFG_ENABLE_UART_BRIDGE in build flags.
+`define CFG_ENABLE_UART_BRIDGE
 `define CFG_UART_BAUD 115200
 
 `endif

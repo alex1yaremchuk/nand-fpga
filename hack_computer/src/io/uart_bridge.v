@@ -2,7 +2,9 @@ module uart_bridge #(
     parameter integer CLK_HZ = 27_000_000,
     parameter integer BAUD = 115_200,
     parameter integer DATA_W = 16,
-    parameter integer ADDR_W = 15
+    parameter integer ADDR_W = 15,
+    parameter integer SCREEN_ADDR_W = 13,
+    parameter [ADDR_W-1:0] SCREEN_BASE = 15'h4000
 )(
     input  wire                  clk,
     input  wire                  rst,
@@ -45,6 +47,7 @@ module uart_bridge #(
     localparam [7:0] CMD_ROMW  = 8'h08;
     localparam [7:0] CMD_ROMR  = 8'h09;
     localparam [7:0] CMD_HALT  = 8'h0A;
+    localparam [7:0] CMD_SCRDELTA = 8'h0B;
 
     localparam [7:0] RSP_PEEK  = 8'h81;
     localparam [7:0] RSP_POKE  = 8'h82;
@@ -56,6 +59,7 @@ module uart_bridge #(
     localparam [7:0] RSP_ROMW  = 8'h88;
     localparam [7:0] RSP_ROMR  = 8'h89;
     localparam [7:0] RSP_HALT  = 8'h8A;
+    localparam [7:0] RSP_SCRDELTA = 8'h8B;
     localparam [7:0] RSP_ERR   = 8'hFF;
 
     localparam [4:0] S_IDLE          = 5'd0;
@@ -71,6 +75,15 @@ module uart_bridge #(
     localparam [4:0] S_TX            = 5'd10;
     localparam [4:0] S_STEP_RESP     = 5'd11;
     localparam [4:0] S_RUN_RESP      = 5'd12;
+    localparam [4:0] S_SCR_RD_SETUP  = 5'd13;
+    localparam [4:0] S_SCR_RD_WAIT   = 5'd14;
+    localparam [4:0] S_SCR_RD_PROC   = 5'd15;
+    localparam [4:0] S_STEP_PREP     = 5'd16;
+    localparam [4:0] S_STEP_EXEC     = 5'd17;
+    localparam [4:0] S_RUN_PREP      = 5'd18;
+
+    localparam integer RESP_CAPACITY = 64;
+    localparam integer SCREEN_WORDS = (1 << SCREEN_ADDR_W);
 
     wire [7:0] rx_data;
     wire rx_valid;
@@ -86,11 +99,29 @@ module uart_bridge #(
     reg [3:0] arg_len = 4'd0;
     reg [3:0] arg_idx = 4'd0;
 
-    reg [7:0] resp [0:15];
-    reg [3:0] resp_len = 4'd0;
-    reg [3:0] resp_idx = 4'd0;
+    reg [7:0] resp [0:RESP_CAPACITY-1];
+    reg [6:0] resp_len = 7'd0;
+    reg [6:0] resp_idx = 7'd0;
 
     reg [31:0] run_left = 32'd0;
+    reg [1:0] prep_cnt = 2'd0;
+    reg [DATA_W-1:0] screen_shadow [0:SCREEN_WORDS-1];
+    reg [SCREEN_ADDR_W-1:0] scr_scan_idx = {SCREEN_ADDR_W{1'b0}};
+    reg [ADDR_W-1:0] scr_scan_addr = SCREEN_BASE;
+    reg scr_sync_mode = 1'b0;
+    reg [7:0] scr_limit = 8'd1;
+    reg [7:0] scr_count = 8'd0;
+    reg scr_wrapped = 1'b0;
+
+    function [6:0] scr_resp_len;
+        input [7:0] count;
+        reg [6:0] count4x;
+        begin
+            // count is clamped to <= 15, so 4*count always fits in 6 bits.
+            count4x = {count[3:0], 2'b00};
+            scr_resp_len = 7'd3 + count4x;
+        end
+    endfunction
 
     function [3:0] cmd_arg_len;
         input [7:0] c;
@@ -106,6 +137,7 @@ module uart_bridge #(
                 CMD_ROMW:  cmd_arg_len = 4'd4;
                 CMD_ROMR:  cmd_arg_len = 4'd2;
                 CMD_HALT:  cmd_arg_len = 4'd0;
+                CMD_SCRDELTA: cmd_arg_len = 4'd2;
                 default:   cmd_arg_len = 4'd0;
             endcase
         end
@@ -129,8 +161,8 @@ module uart_bridge #(
             resp[5] <= cpu_d[15:8];
             resp[6] <= cpu_d[7:0];
             resp[7] <= {7'b0, cpu_run_en};
-            resp_len <= 4'd8;
-            resp_idx <= 4'd0;
+            resp_len <= 7'd8;
+            resp_idx <= 7'd0;
         end
     endtask
 
@@ -138,8 +170,8 @@ module uart_bridge #(
         input [7:0] b0;
         begin
             resp[0] <= b0;
-            resp_len <= 4'd1;
-            resp_idx <= 4'd0;
+            resp_len <= 7'd1;
+            resp_idx <= 7'd0;
         end
     endtask
 
@@ -188,9 +220,16 @@ module uart_bridge #(
             cmd <= 8'h00;
             arg_len <= 4'd0;
             arg_idx <= 4'd0;
-            resp_len <= 4'd0;
-            resp_idx <= 4'd0;
+            resp_len <= 7'd0;
+            resp_idx <= 7'd0;
             run_left <= 32'd0;
+            prep_cnt <= 2'd0;
+            scr_scan_idx <= {SCREEN_ADDR_W{1'b0}};
+            scr_scan_addr <= SCREEN_BASE;
+            scr_sync_mode <= 1'b0;
+            scr_limit <= 8'd1;
+            scr_count <= 8'd0;
+            scr_wrapped <= 1'b0;
         end else begin
             case (state)
                 S_IDLE: begin
@@ -236,8 +275,8 @@ module uart_bridge #(
                         end
 
                         CMD_STEP: begin
-                            cpu_step_pulse <= 1'b1;
-                            state <= S_STEP_WAIT;
+                            prep_cnt <= 2'd2;
+                            state <= S_STEP_PREP;
                         end
 
                         CMD_RUN: begin
@@ -247,7 +286,8 @@ module uart_bridge #(
                                 load_status_resp(RSP_RUN);
                                 state <= S_TX;
                             end else begin
-                                state <= S_RUN;
+                                prep_cnt <= 2'd2;
+                                state <= S_RUN_PREP;
                             end
                         end
 
@@ -290,11 +330,26 @@ module uart_bridge #(
                             state <= S_TX;
                         end
 
+                        CMD_SCRDELTA: begin
+                            scr_sync_mode <= args[0][0];
+                            scr_limit <= (args[1] == 8'd0) ? 8'd1 : ((args[1] > 8'd15) ? 8'd15 : args[1]);
+                            scr_count <= 8'd0;
+                            scr_wrapped <= 1'b0;
+                            if (args[0][0]) begin
+                                scr_scan_idx <= {SCREEN_ADDR_W{1'b0}};
+                                scr_scan_addr <= SCREEN_BASE;
+                            end
+                            resp[0] <= RSP_SCRDELTA;
+                            resp[1] <= 8'h00;
+                            resp[2] <= 8'h00;
+                            state <= S_SCR_RD_SETUP;
+                        end
+
                         default: begin
                             resp[0] <= RSP_ERR;
                             resp[1] <= cmd;
-                            resp_len <= 4'd2;
-                            resp_idx <= 4'd0;
+                            resp_len <= 7'd2;
+                            resp_idx <= 7'd0;
                             state <= S_TX;
                         end
                     endcase
@@ -312,8 +367,8 @@ module uart_bridge #(
                     resp[0] <= RSP_PEEK;
                     resp[1] <= mem_rdata[15:8];
                     resp[2] <= mem_rdata[7:0];
-                    resp_len <= 4'd3;
-                    resp_idx <= 4'd0;
+                    resp_len <= 7'd3;
+                    resp_idx <= 7'd0;
                     state <= S_TX;
                 end
 
@@ -327,9 +382,22 @@ module uart_bridge #(
                     resp[0] <= RSP_ROMR;
                     resp[1] <= rom_rdata[15:8];
                     resp[2] <= rom_rdata[7:0];
-                    resp_len <= 4'd3;
-                    resp_idx <= 4'd0;
+                    resp_len <= 7'd3;
+                    resp_idx <= 7'd0;
                     state <= S_TX;
+                end
+
+                S_STEP_PREP: begin
+                    if (prep_cnt != 0) begin
+                        prep_cnt <= prep_cnt - 1'b1;
+                    end else begin
+                        state <= S_STEP_EXEC;
+                    end
+                end
+
+                S_STEP_EXEC: begin
+                    cpu_step_pulse <= 1'b1;
+                    state <= S_STEP_WAIT;
                 end
 
                 S_STEP_WAIT: begin
@@ -339,6 +407,14 @@ module uart_bridge #(
                 S_STEP_RESP: begin
                     load_status_resp(RSP_STEP);
                     state <= S_TX;
+                end
+
+                S_RUN_PREP: begin
+                    if (prep_cnt != 0) begin
+                        prep_cnt <= prep_cnt - 1'b1;
+                    end else begin
+                        state <= S_RUN;
+                    end
                 end
 
                 S_RUN: begin
@@ -360,6 +436,61 @@ module uart_bridge #(
                 S_RUN_RESP: begin
                     load_status_resp(RSP_RUN);
                     state <= S_TX;
+                end
+
+                S_SCR_RD_SETUP: begin
+                    mem_addr <= scr_scan_addr;
+                    mem_req <= 1'b1;
+                    mem_we <= 1'b0;
+                    state <= S_SCR_RD_WAIT;
+                end
+
+                S_SCR_RD_WAIT: begin
+                    mem_req <= 1'b1;
+                    mem_we <= 1'b0;
+                    state <= S_SCR_RD_PROC;
+                end
+
+                S_SCR_RD_PROC: begin
+                    mem_req <= 1'b1;
+                    mem_we <= 1'b0;
+
+                    if ((!scr_sync_mode) && (mem_rdata != screen_shadow[scr_scan_idx]) && (scr_count >= scr_limit)) begin
+                        resp[1] <= {6'b0, 1'b1, scr_wrapped}; // bit1=more, bit0=wrapped
+                        resp[2] <= scr_count;
+                        resp_len <= scr_resp_len(scr_count);
+                        resp_idx <= 7'd0;
+                        state <= S_TX;
+                    end else begin
+                        if ((!scr_sync_mode) && (mem_rdata != screen_shadow[scr_scan_idx]) && (scr_count < scr_limit)) begin
+                            resp[3 + (scr_count << 2)] <= {1'b0, scr_scan_addr[ADDR_W-1:8]};
+                            resp[4 + (scr_count << 2)] <= scr_scan_addr[7:0];
+                            resp[5 + (scr_count << 2)] <= mem_rdata[15:8];
+                            resp[6 + (scr_count << 2)] <= mem_rdata[7:0];
+                            scr_count <= scr_count + 1'b1;
+                        end
+
+                        screen_shadow[scr_scan_idx] <= mem_rdata;
+
+                        if (scr_scan_idx == SCREEN_WORDS - 1) begin
+                            scr_scan_idx <= {SCREEN_ADDR_W{1'b0}};
+                            scr_scan_addr <= SCREEN_BASE;
+                            scr_wrapped <= 1'b1;
+                            resp[1] <= {6'b0, 1'b0, 1'b1}; // bit1=more, bit0=wrapped
+                            resp[2] <= ((!scr_sync_mode) &&
+                                        (mem_rdata != screen_shadow[scr_scan_idx]) &&
+                                        (scr_count < scr_limit)) ? (scr_count + 1'b1) : scr_count;
+                            resp_len <= scr_resp_len(((!scr_sync_mode) &&
+                                                      (mem_rdata != screen_shadow[scr_scan_idx]) &&
+                                                      (scr_count < scr_limit)) ? (scr_count + 1'b1) : scr_count);
+                            resp_idx <= 7'd0;
+                            state <= S_TX;
+                        end else begin
+                            scr_scan_idx <= scr_scan_idx + 1'b1;
+                            scr_scan_addr <= scr_scan_addr + 1'b1;
+                            state <= S_SCR_RD_SETUP;
+                        end
+                    end
                 end
 
                 S_TX: begin

@@ -30,6 +30,13 @@ Binary protocol over UART 8N1.
 - `0x0A HALT`
   - Clears run state.
   - Response: `0x8A`
+- `0x0B SCRDELTA flags max_entries`
+  - Streams changed SCREEN words (`0x4000...`) in delta packets.
+  - `flags bit0 = 1`: sync mode (refresh bridge snapshot, suppress delta output).
+  - `max_entries`: max changed words per packet (`1..15`, `0` treated as `1`).
+  - Response: `0x8B rsp_flags count [addr_hi addr_lo data_hi data_lo] * count`
+  - `rsp_flags bit0`: scan wrapped to screen base during this packet.
+  - `rsp_flags bit1`: more deltas pending (poll again).
 
 ## Flags byte
 - `bit0`: CPU run enabled (`1` running, `0` paused)
@@ -41,3 +48,6 @@ Binary protocol over UART 8N1.
 ## Notes
 - Memory/ROM reads are synchronous in RTL; bridge inserts wait states internally.
 - Current top integration enables bridge only with `CFG_ENABLE_UART_BRIDGE`.
+- Typical host flow for delta mode:
+  - call `SCRDELTA` once with `flags.bit0=1` (sync),
+  - then poll with `flags=0` and consume packets while `rsp_flags.bit1=1`.

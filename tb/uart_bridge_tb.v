@@ -52,6 +52,9 @@ module uart_bridge_tb;
     reg [7:0] rb5;
     reg [7:0] rb6;
     reg [7:0] rb7;
+    reg [7:0] rb8;
+    reg [7:0] rb9;
+    reg [7:0] rb10;
     reg [7:0] rx_fifo [0:255];
     integer rx_wr = 0;
     integer rx_rd = 0;
@@ -185,7 +188,7 @@ module uart_bridge_tb;
             while (rx_rd >= rx_wr) begin
                 #(BIT_NS/8);
                 tmo = tmo + 1;
-                if (tmo > 2000) begin
+                if (tmo > 80000) begin
                     $display("FAIL: UART RX timeout waiting for byte (t=%0t)", $time);
                     $fatal(1);
                 end
@@ -290,6 +293,86 @@ module uart_bridge_tb;
         uart_send_byte(8'h0A);
         uart_recv_byte(rb0);
         expect_true(rb0 == 8'h8A, "HALT rsp code");
+
+        // SCRDELTA sync (build baseline, no data returned).
+        mem[15'h4000] = 16'h0001;
+        mem[15'h4001] = 16'h0002;
+        uart_send_byte(8'h0B);
+        uart_send_byte(8'h01); // sync=1
+        uart_send_byte(8'h04); // max_entries
+        uart_recv_byte(rb0);
+        uart_recv_byte(rb1);
+        uart_recv_byte(rb2);
+        expect_true(rb0 == 8'h8B, "SCRDELTA sync rsp code");
+        expect_true(rb1[0] == 1'b1, "SCRDELTA sync wrapped flag");
+        expect_true(rb1[1] == 1'b0, "SCRDELTA sync more flag");
+        expect_true(rb2 == 8'h00, "SCRDELTA sync count");
+
+        // SCRDELTA regular: report changed words.
+        mem[15'h4000] = 16'h00aa;
+        mem[15'h4003] = 16'h0055;
+        uart_send_byte(8'h0B);
+        uart_send_byte(8'h00); // sync=0
+        uart_send_byte(8'h04); // max_entries
+        uart_recv_byte(rb0);
+        uart_recv_byte(rb1);
+        uart_recv_byte(rb2);
+        expect_true(rb0 == 8'h8B, "SCRDELTA rsp code");
+        expect_true(rb2 == 8'h02, "SCRDELTA count");
+        uart_recv_byte(rb3);
+        uart_recv_byte(rb4);
+        uart_recv_byte(rb5);
+        uart_recv_byte(rb6);
+        uart_recv_byte(rb7);
+        uart_recv_byte(rb8);
+        uart_recv_byte(rb9);
+        uart_recv_byte(rb10);
+        expect_true({rb3, rb4} == 16'h4000, "SCRDELTA item0 addr");
+        expect_true({rb5, rb6} == 16'h00aa, "SCRDELTA item0 data");
+        expect_true({rb7, rb8} == 16'h4003, "SCRDELTA item1 addr");
+        expect_true({rb9, rb10} == 16'h0055, "SCRDELTA item1 data");
+
+        // SCRDELTA limit handling: first response truncated with more=1.
+        mem[15'h4004] = 16'h1111;
+        mem[15'h4005] = 16'h2222;
+        mem[15'h4006] = 16'h3333;
+        uart_send_byte(8'h0B);
+        uart_send_byte(8'h00); // sync=0
+        uart_send_byte(8'h02); // max_entries=2
+        uart_recv_byte(rb0);
+        uart_recv_byte(rb1);
+        uart_recv_byte(rb2);
+        expect_true(rb0 == 8'h8B, "SCRDELTA limit rsp code");
+        expect_true(rb1[1] == 1'b1, "SCRDELTA limit more flag");
+        expect_true(rb2 == 8'h02, "SCRDELTA limit count");
+        uart_recv_byte(rb3);
+        uart_recv_byte(rb4);
+        uart_recv_byte(rb5);
+        uart_recv_byte(rb6);
+        uart_recv_byte(rb7);
+        uart_recv_byte(rb8);
+        uart_recv_byte(rb9);
+        uart_recv_byte(rb10);
+        expect_true({rb3, rb4} == 16'h4004, "SCRDELTA limit item0 addr");
+        expect_true({rb5, rb6} == 16'h1111, "SCRDELTA limit item0 data");
+        expect_true({rb7, rb8} == 16'h4005, "SCRDELTA limit item1 addr");
+        expect_true({rb9, rb10} == 16'h2222, "SCRDELTA limit item1 data");
+
+        // Remaining delta should be returned on next poll.
+        uart_send_byte(8'h0B);
+        uart_send_byte(8'h00); // sync=0
+        uart_send_byte(8'h02); // max_entries=2
+        uart_recv_byte(rb0);
+        uart_recv_byte(rb1);
+        uart_recv_byte(rb2);
+        expect_true(rb0 == 8'h8B, "SCRDELTA follow-up rsp code");
+        expect_true(rb2 == 8'h01, "SCRDELTA follow-up count");
+        uart_recv_byte(rb3);
+        uart_recv_byte(rb4);
+        uart_recv_byte(rb5);
+        uart_recv_byte(rb6);
+        expect_true({rb3, rb4} == 16'h4006, "SCRDELTA follow-up addr");
+        expect_true({rb5, rb6} == 16'h3333, "SCRDELTA follow-up data");
 
         $display("PASS: uart_bridge_tb");
         $finish;

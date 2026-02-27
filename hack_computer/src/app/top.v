@@ -89,9 +89,13 @@ module top(
 `ifdef CFG_ENABLE_UART_BRIDGE
     wire cpu_step = cpu_run_en | cpu_step_req | uart_cpu_step_pulse;
     wire cpu_reset = cpu_reset_req | uart_cpu_reset_pulse;
+    wire uart_activity = uart_cpu_step_pulse | uart_cpu_reset_pulse |
+                         uart_mem_req | uart_rom_we | uart_rom_rd_req |
+                         uart_kbd_we | uart_cpu_run_set | uart_cpu_run_clr;
 `else
     wire cpu_step = cpu_run_en | cpu_step_req;
     wire cpu_reset = cpu_reset_req;
+    wire uart_activity = 1'b0;
 `endif
 
     wire cpu_run_en = cpu_run & (page == PAGE_CPU);
@@ -256,7 +260,8 @@ module top(
         .CLK_HZ(CLK_HZ),
         .BAUD(`CFG_UART_BAUD),
         .DATA_W(DATA_W),
-        .ADDR_W(ADDR_W)
+        .ADDR_W(ADDR_W),
+        .SCREEN_ADDR_W(MEMMAP_SCREEN_ADDR_W)
     ) u_uart_bridge (
         .clk(Clock),
         .rst(uart_bridge_rst),
@@ -401,6 +406,10 @@ module top(
         if (uart_cpu_run_clr) begin
             cpu_run <= 1'b0;
         end
+        // UART bridge expects CPU-owned buses. Force PAGE_CPU while bridge is active.
+        if (uart_cpu_step_pulse | uart_cpu_reset_pulse | uart_mem_req | uart_rom_we | uart_rom_rd_req | uart_kbd_we) begin
+            page <= PAGE_CPU;
+        end
 `endif
 
         if (ms_div == TICKS_PER_MS - 1) begin
@@ -423,7 +432,8 @@ module top(
         end
 
         // TM1638 controls (on press edge).
-        if (rx_done) begin
+        // Ignore local panel input while UART bridge is actively driving control flow.
+        if (rx_done && !uart_activity) begin
             rx_active <= 1'b0;
 
             if (tm_edge[0]) begin // selected nibble++
@@ -502,41 +512,43 @@ module top(
         end
 
         // Board controls (debounced press pulse).
-        if (board_press[0]) begin
-            edit_addr <= edit_addr + 1'b1;
-            led <= ~led;
-        end
-
-        if (board_press[1]) begin
-            edit_addr <= edit_addr - 1'b1;
-            led <= ~led;
-        end
-
-        if (board_press[2]) begin
-            if (page == PAGE_CPU) begin
-                cpu_run <= ~cpu_run; // run/pause shortcut
-            end else begin
-                edit_addr <= edit_addr + 15'h0100;
+        if (!uart_activity) begin
+            if (board_press[0]) begin
+                edit_addr <= edit_addr + 1'b1;
+                led <= ~led;
             end
-            led <= ~led;
-        end
 
-        if (board_press[3]) begin
-            if (page == PAGE_CPU) begin
+            if (board_press[1]) begin
+                edit_addr <= edit_addr - 1'b1;
+                led <= ~led;
+            end
+
+            if (board_press[2]) begin
+                if (page == PAGE_CPU) begin
+                    cpu_run <= ~cpu_run; // run/pause shortcut
+                end else begin
+                    edit_addr <= edit_addr + 15'h0100;
+                end
+                led <= ~led;
+            end
+
+            if (board_press[3]) begin
+                if (page == PAGE_CPU) begin
+                    cpu_run <= 1'b0;
+                end
+                page <= page + 1'b1;
+                led <= ~led;
+            end
+
+            if (board_press[4]) begin
+                page <= PAGE_ROM;
+                edit_nibble <= 2'd0;
+                edit_word <= {DATA_W{1'b0}};
+                edit_addr <= {ADDR_W{1'b0}};
+                cpu_reset_req <= 1'b1;
                 cpu_run <= 1'b0;
+                led <= ~led;
             end
-            page <= page + 1'b1;
-            led <= ~led;
-        end
-
-        if (board_press[4]) begin
-            page <= PAGE_ROM;
-            edit_nibble <= 2'd0;
-            edit_word <= {DATA_W{1'b0}};
-            edit_addr <= {ADDR_W{1'b0}};
-            cpu_reset_req <= 1'b1;
-            cpu_run <= 1'b0;
-            led <= ~led;
         end
     end
 

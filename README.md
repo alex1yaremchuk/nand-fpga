@@ -52,30 +52,49 @@ Hack runner commands:
 
 ### Phase 4: UART Screen/Input Bridge
 - [x] Implement UART command protocol (`peek`, `poke`, `run`, `step`, `reset`).
-- [ ] Stream screen updates over UART (delta mode first).
+- [x] Stream screen updates over UART (delta mode first, `SCRDELTA`).
 - [x] Feed keyboard events from host into KBD register (`0x6000`).
-- [ ] Ship a small PC viewer tool (render screen + send key events).
+- [x] Ship a small PC viewer tool (render screen + send key events).
 
 UART bridge commands:
 - `powershell -ExecutionPolicy Bypass -File tools/run_uart_bridge_tb.ps1`
 - `python tools/hack_uart_client.py --port COM5 state`
 - `python tools/hack_uart_client.py --port COM5 peek 0x0002`
 - `python tools/hack_uart_client.py --port COM5 poke 0x0002 0x1234`
+- `python tools/hack_uart_client.py --port COM5 scrdelta --sync`
+- `python tools/hack_uart_client.py --port COM5 scrdelta --max-entries 12`
 - `python tools/hack_uart_client.py --port COM5 watch --words-per-row 8 --rows 8 --interval 0.2`
+- `python tools/hack_uart_client.py --port COM5 viewer --words-per-row 8 --rows 8 --auto-run`
+- `python tools/hack_uart_client.py --port COM5 runhack --hack-file build/rect_visual_demo/Rect.hack --cycles 40 --rom-addr-w 13 --ram-base 0 --ram-words 1 --screen-words 5 --clear-screen-words 5 --out-dir build/fpga_uart_rect`
+  - If your terminal flickers/artifacts, add `--interval 0.15` or `--no-clear`.
 
 Quick visual checks:
 1. PC-only (`sim_full`/`fpga_fit`, no FPGA):
    - `powershell -ExecutionPolicy Bypass -File tools/run_rect_visual_demo.ps1 -Profile fpga_fit`
    - See ASCII preview in terminal and image `build/rect_visual_demo/screen.pbm`.
 2. UART on FPGA:
-   - Terminal A: `python tools/hack_uart_client.py --port COM5 watch --words-per-row 8 --rows 8 --always-render`
-   - Terminal B: `python tools/hack_uart_client.py --port COM5 poke 0x4000 0xFFFF`
-   - In Terminal A top line becomes `#` pixels (screen RAM base is `0x4000`).
+   - Single terminal: `python tools/hack_uart_client.py --port COM5 viewer --words-per-row 8 --rows 8 --auto-run`
+   - Controls: `q` quit, `space` run/pause, `r` reset, `s` state, `x` key up.
+   - `watch` still exists, but it is read-only and cannot share port with a second client.
 
 ### Phase 5: Hardware End-to-End
-- [ ] Run `Rect` on FPGA via UART viewer and verify rendering.
-- [ ] Run an interactive keyboard-driven program via UART.
-- [ ] Correlate FPGA dumps vs simulation dumps for same programs.
+- [x] Run `Rect` on FPGA via UART viewer and verify rendering workflow (one-command script).
+- [x] Run an interactive keyboard-driven program via UART.
+- [x] Correlate FPGA dumps vs simulation dumps for same programs.
+
+Hardware correlation command:
+- `powershell -ExecutionPolicy Bypass -File tools/compare_fpga_uart_against_golden.ps1 -Port COM5 -Profile fpga_fit`
+- Add `-StrictPcDump` to also require `D` and `A` register match in `pc_dump.txt` (default compares only `PC`).
+- Hardware compare enables ROM write verification/retry to avoid UART programming glitches.
+
+Interactive keyboard demo (single command):
+- `powershell -ExecutionPolicy Bypass -File tools/run_keyboard_interactive_demo.ps1 -Port COM5`
+- Program: `tools/programs/KeyboardScreen.asm` (`KBD` controls `SCREEN[0]`, key code mirrored to `RAM[0]`).
+- Automated smoke check:
+  - `powershell -ExecutionPolicy Bypass -File tools/run_keyboard_uart_smoke.ps1 -Port COM5`
+
+Rect live viewer demo (single command):
+- `powershell -ExecutionPolicy Bypass -File tools/run_rect_uart_viewer_demo.ps1 -Port COM5`
 
 ## Project Layout
 - `hack_computer/src/app`: top-level integration (`top.v`) and global config.

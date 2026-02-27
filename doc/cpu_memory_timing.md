@@ -31,6 +31,10 @@ This document defines the current timing behavior used by the Hack FPGA implemen
 - CPU memory bus is connected only when `PAGE_CPU` is active.
 - Therefore, continuous `run` mode is allowed only on `PAGE_CPU`.
 - Leaving `PAGE_CPU` forces `cpu_run=0` to prevent invalid memory ownership.
+- With `CFG_ENABLE_UART_BRIDGE`, any UART bridge command that touches CPU/memory/ROM
+  forces `PAGE_CPU` automatically, so remote UART execution remains coherent.
+- While UART bridge is active, local TM1638/board control actions are ignored to avoid
+  UI-driven page/run overrides during remote execution windows.
 
 ## Verification Status
 - Implemented reset/boot deterministic testbench:

@@ -26,5 +26,6 @@
         <File path="src/mem/memory_map.v" type="file.verilog" enable="1"/>
         <File path="src/app/top.v" type="file.verilog" enable="1"/>
         <File path="src/constraints/hack_computer.cst" type="file.cst" enable="1"/>
+        <File path="src/constraints/hack_computer.sdc" type="file.sdc" enable="1"/>
     </FileList>
 </Project>

@@ -36,3 +36,10 @@ IO_PORT "tm_clk" IO_TYPE=LVCMOS33;
 
 IO_LOC  "tm_dio" P8;
 IO_PORT "tm_dio" IO_TYPE=LVCMOS33;
+
+// Tang Primer 20K Dock USB-UART (FT2232H channel)
+IO_LOC "uart_tx" M11;
+IO_PORT "uart_tx" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+IO_LOC "uart_rx" T13;
+IO_PORT "uart_rx" IO_TYPE=LVCMOS33 PULL_MODE=UP;
