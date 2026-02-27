@@ -25,3 +25,8 @@ out/
 .DS_Store
 Thumbs.db
 tools/__pycache__
+
+# Python cache
+__pycache__/
+*.py[cod]
+
