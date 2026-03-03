@@ -1,0 +1,32 @@
+function Sys.init 0
+call Memory.init 0
+pop temp 0
+call Main.main 0
+pop temp 0
+label SYS$HALT
+goto SYS$HALT
+
+function Sys.wait 1
+push argument 0
+pop local 0
+label SYS$WAIT_LOOP
+push local 0
+push constant 0
+eq
+if-goto SYS$WAIT_END
+push local 0
+push constant 1
+sub
+pop local 0
+goto SYS$WAIT_LOOP
+label SYS$WAIT_END
+push constant 0
+return
+
+function Sys.halt 0
+label SYS$HALT_FN
+goto SYS$HALT_FN
+
+function Sys.error 0
+label SYS$ERROR
+goto SYS$ERROR

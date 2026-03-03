@@ -1,0 +1,156 @@
+class String {
+    constructor String new(int maxLength) {
+        var Array p;
+        let p = Memory.alloc(maxLength + 1);
+        let p[0] = 0;
+        return p;
+    }
+
+    method void dispose() {
+        do Memory.deAlloc(this);
+        return;
+    }
+
+    method int length() {
+        var Array p;
+        let p = this;
+        return p[0];
+    }
+
+    method int charAt(int j) {
+        var Array p;
+        let p = this;
+        return p[j + 1];
+    }
+
+    method void setCharAt(int j, int c) {
+        var Array p;
+        let p = this;
+        let p[j + 1] = c;
+        return;
+    }
+
+    method String appendChar(int c) {
+        var Array p;
+        var int len;
+        let p = this;
+        let len = p[0];
+        let p[len + 1] = c;
+        let p[0] = len + 1;
+        return this;
+    }
+
+    method void eraseLastChar() {
+        var Array p;
+        var int len;
+        let p = this;
+        let len = p[0];
+        if (len > 0) {
+            let p[0] = len - 1;
+        }
+        return;
+    }
+
+    method int intValue() {
+        var int i;
+        var int len;
+        var int value;
+        var int c;
+        var int neg;
+
+        let len = length();
+        let i = 0;
+        let value = 0;
+        let neg = 0;
+
+        if (len = 0) {
+            return 0;
+        }
+
+        let c = charAt(0);
+        if (c = 45) {
+            let neg = 1;
+            let i = 1;
+        }
+
+        while (i < len) {
+            let c = charAt(i);
+            if (c < 48) {
+                if (neg = 0) {
+                    return value;
+                }
+                return -value;
+            }
+            if (c > 57) {
+                if (neg = 0) {
+                    return value;
+                }
+                return -value;
+            }
+            let value = Math.multiply(value, 10) + (c - 48);
+            let i = i + 1;
+        }
+
+        if (neg = 0) {
+            return value;
+        }
+        return -value;
+    }
+
+    method void setInt(int v) {
+        var Array p;
+        var int x;
+        var int isNeg;
+        var int q;
+        var int digit;
+        var int count;
+
+        let p = this;
+        let p[0] = 0;
+        let x = v;
+        let isNeg = 0;
+        let count = 0;
+
+        if (x < 0) {
+            let x = -x;
+            let isNeg = 1;
+        }
+
+        if (x = 0) {
+            do appendChar(48);
+            return;
+        }
+
+        while (x > 0) {
+            let q = Math.divide(x, 10);
+            let digit = x - Math.multiply(q, 10);
+            do Memory.poke(3900 + count, digit);
+            let count = count + 1;
+            let x = q;
+        }
+
+        if (isNeg = 1) {
+            do appendChar(45);
+        }
+
+        while (count > 0) {
+            let count = count - 1;
+            let digit = Memory.peek(3900 + count);
+            do appendChar(digit + 48);
+        }
+
+        return;
+    }
+
+    function int backSpace() {
+        return 129;
+    }
+
+    function int doubleQuote() {
+        return 34;
+    }
+
+    function int newLine() {
+        return 128;
+    }
+}

@@ -1,0 +1,10 @@
+function Main.id 0
+push argument 0
+return
+
+function Main.start 0
+push constant 7
+call Main.id 1
+pop temp 1
+label END
+goto END

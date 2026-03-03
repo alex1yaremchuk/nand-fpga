@@ -1,0 +1,33 @@
+class Main {
+    function void main() {
+        var String s;
+        var int v;
+
+        let s = String.new(8);
+
+        do s.setInt(0);
+        let v = s.intValue();
+        do Memory.poke(3800, v);
+        do Memory.poke(3801, s.length());
+
+        do s.setInt(507);
+        let v = s.intValue();
+        do Memory.poke(3802, v);
+        do Memory.poke(3803, s.length());
+        do Memory.poke(3804, s.charAt(0));
+        do Memory.poke(3805, s.charAt(1));
+        do Memory.poke(3806, s.charAt(2));
+
+        do s.setInt(-42);
+        let v = s.intValue();
+        do Memory.poke(3807, v);
+        do Memory.poke(3808, s.length());
+        do Memory.poke(3809, s.charAt(0));
+        do Memory.poke(3810, s.charAt(1));
+        do Memory.poke(3811, s.charAt(2));
+
+        do Output.printString(s);
+        do Memory.poke(3812, 1);
+        return;
+    }
+}

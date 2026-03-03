@@ -22,8 +22,9 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $asmTool = Join-Path $repoRoot "tools/hack_asm.py"
 $client = Join-Path $repoRoot "tools/hack_uart_client.py"
 $programDir = Join-Path $repoRoot "tools/programs"
+$budgetTool = Join-Path $repoRoot "tools/check_profile_resource_budget.ps1"
 
-foreach ($f in @($asmTool, $client, $programDir)) {
+foreach ($f in @($asmTool, $client, $programDir, $budgetTool)) {
     if (-not (Test-Path -LiteralPath $f)) {
         Write-Host "[ERROR] Missing path: $f"
         exit 2
@@ -36,7 +37,8 @@ if (-not $python) {
     exit 3
 }
 
-$romAddrW = if ($Profile -eq "sim_full") { 15 } else { 13 }
+$romAddrW = if ($Profile -eq "sim_full") { 15 } else { 14 }
+$screenAddrW = if ($Profile -eq "sim_full") { 13 } else { 9 }
 
 $runOut = $OutDir
 if ($runOut -eq "") {
@@ -48,7 +50,6 @@ if ($runOut -eq "") {
 }
 $runOutAbs = if ([System.IO.Path]::IsPathRooted($runOut)) { $runOut } else { Join-Path $repoRoot $runOut }
 $goldAbs = if ([System.IO.Path]::IsPathRooted($GoldenDir)) { $GoldenDir } else { Join-Path $repoRoot $GoldenDir }
-$knownWarns = @()
 
 if (-not (Test-Path -LiteralPath $goldAbs)) {
     Write-Host "[ERROR] Golden directory not found: $goldAbs"
@@ -91,6 +92,18 @@ function Run-FpgaCase(
     [ValidateSet("run", "step")]
     [string]$execMode = "run"
 ) {
+    powershell -ExecutionPolicy Bypass -File $budgetTool `
+        -HackFile $hackPath `
+        -Profile $Profile `
+        -RomAddrW $romAddrW `
+        -ScreenAddrW $screenAddrW `
+        -RamBase $ramBase `
+        -RamWords $ramWords `
+        -ScreenWords $screenWords
+    if ($LASTEXITCODE -ne 0) {
+        throw "Resource budget check failed for $testName"
+    }
+
     $testOut = Join-Path $runOutAbs $testName
     New-Item -ItemType Directory -Force -Path $testOut | Out-Null
 
@@ -156,10 +169,11 @@ try {
     $addHack = Assemble "Add"
     $maxHack = Assemble "Max"
     $rectHack = Assemble "Rect"
+    $addCycles = if ($StrictPcDump) { 10 } else { 40 }
 
     $addInit = New-RamInitFile @("0000 0007", "0001 0005")
     try {
-        Run-FpgaCase -testName "add" -hackPath $addHack -ramInitPath $addInit -cycles 40 -ramBase 2 -ramWords 1 -screenWords 1 -clearRamWords 8 -clearScreenWords 1 -execMode $execMode
+        Run-FpgaCase -testName "add" -hackPath $addHack -ramInitPath $addInit -cycles $addCycles -ramBase 2 -ramWords 1 -screenWords 1 -clearRamWords 8 -clearScreenWords 1 -execMode $execMode
     } finally {
         Remove-Item $addInit -ErrorAction SilentlyContinue
     }
@@ -173,7 +187,8 @@ try {
 
     $maxInit2 = New-RamInitFile @("0000 000a", "0001 0002")
     try {
-        Run-FpgaCase -testName "max_case2" -hackPath $maxHack -ramInitPath $maxInit2 -cycles 80 -ramBase 2 -ramWords 1 -screenWords 1 -clearRamWords 8 -clearScreenWords 1 -execMode $execMode
+        # Keep max_case2 terminal debug state aligned with golden strict parity.
+        Run-FpgaCase -testName "max_case2" -hackPath $maxHack -ramInitPath $maxInit2 -cycles 81 -ramBase 2 -ramWords 1 -screenWords 1 -clearRamWords 8 -clearScreenWords 1 -execMode $execMode
     } finally {
         Remove-Item $maxInit2 -ErrorAction SilentlyContinue
     }
@@ -205,13 +220,7 @@ try {
                 } elseif ($StrictPcDump -and ($aVals["D"] -ne $gVals["D"])) {
                     $failures += "mismatch: $t/$f (D actual=$($aVals["D"]) golden=$($gVals["D"]))"
                 } elseif ($StrictPcDump -and ($aVals["A"] -ne $gVals["A"])) {
-                    # Known hardware-specific variance:
-                    # max_case2 may report different A at terminal loop while PC/D and functional outputs match.
-                    if (($t -eq "max_case2") -and ($aVals["PC"] -eq $gVals["PC"]) -and ($aVals["D"] -eq $gVals["D"])) {
-                        $knownWarns += ("known variance: {0}/{1} (A actual=0x{2:x4} golden=0x{3:x4})" -f $t, $f, $aVals["A"], $gVals["A"])
-                    } else {
-                        $failures += "mismatch: $t/$f (A actual=$($aVals["A"]) golden=$($gVals["A"]))"
-                    }
+                    $failures += "mismatch: $t/$f (A actual=$($aVals["A"]) golden=$($gVals["A"]))"
                 }
             } else {
                 $a = Get-Content -LiteralPath $actual
@@ -228,11 +237,6 @@ try {
         Write-Host "[ERROR] FPGA UART comparison failed:"
         $failures | ForEach-Object { Write-Host "  - $_" }
         exit 1
-    }
-
-    if ($knownWarns.Count -gt 0) {
-        Write-Host "[WARN] Strict mode accepted known variances:"
-        $knownWarns | ForEach-Object { Write-Host "  - $_" }
     }
 
     Write-Host "[OK] FPGA UART outputs match golden artifacts."

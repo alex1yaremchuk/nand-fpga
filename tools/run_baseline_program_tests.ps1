@@ -122,9 +122,10 @@ try {
     }
 
     # Max case 2: max(10,2)=10
+    # NOTE: 81 cycles keeps terminal PC/A state deterministic for strict parity checks.
     $maxInit2 = New-RamInitFile @("0000 000a", "0001 0002")
     try {
-        $out = Run-Program -testName "max_case2" -hackPath $maxHack -ramInitPath $maxInit2 -cycles 80 -ramBase 2 -ramWords 1 -screenWords 1
+        $out = Run-Program -testName "max_case2" -hackPath $maxHack -ramInitPath $maxInit2 -cycles 81 -ramBase 2 -ramWords 1 -screenWords 1
         $line = (Get-Content -LiteralPath $out.RamDump | Select-Object -First 1)
         if ($line -notmatch "\s000a$") {
             $failures += "Max case2 failed: expected RAM[2]=000a, got '$line'"

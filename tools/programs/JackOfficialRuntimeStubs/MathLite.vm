@@ -1,0 +1,64 @@
+function Math.abs 0
+push argument 0
+push constant 0
+lt
+if-goto MATH$ABS_NEG
+push argument 0
+return
+label MATH$ABS_NEG
+push argument 0
+neg
+return
+
+function Math.multiply 2
+push constant 0
+pop local 0
+push argument 1
+pop local 1
+label MATH$MUL_LOOP
+push local 1
+push constant 0
+eq
+if-goto MATH$MUL_END
+push local 0
+push argument 0
+add
+pop local 0
+push local 1
+push constant 1
+sub
+pop local 1
+goto MATH$MUL_LOOP
+label MATH$MUL_END
+push local 0
+return
+
+function Math.divide 2
+push argument 1
+push constant 0
+eq
+if-goto MATH$DIV_ZERO
+push constant 0
+pop local 0
+push argument 0
+pop local 1
+label MATH$DIV_LOOP
+push local 1
+push argument 1
+lt
+if-goto MATH$DIV_END
+push local 1
+push argument 1
+sub
+pop local 1
+push local 0
+push constant 1
+add
+pop local 0
+goto MATH$DIV_LOOP
+label MATH$DIV_END
+push local 0
+return
+label MATH$DIV_ZERO
+push constant 0
+return

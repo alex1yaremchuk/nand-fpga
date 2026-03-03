@@ -1,0 +1,5 @@
+class Memory {
+    function int alloc(int size) {
+        return 2048;
+    }
+}

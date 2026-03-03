@@ -1,0 +1,11 @@
+class Sys {
+    static int out;
+
+    function void init() {
+        let out = 2 + 3;
+        while (true) {
+            let out = out;
+        }
+        return;
+    }
+}

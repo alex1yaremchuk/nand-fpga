@@ -7,6 +7,7 @@ module uart_rx #(
     input  wire       rx,
     output reg [7:0]  data = 8'h00,
     output reg        valid = 1'b0,
+    output reg        frame_err = 1'b0,
     output reg        busy = 1'b0
 );
 
@@ -25,6 +26,7 @@ module uart_rx #(
 
     always @(posedge clk) begin
         valid <= 1'b0;
+        frame_err <= 1'b0;
 
         if (rst) begin
             state <= S_IDLE;
@@ -32,6 +34,7 @@ module uart_rx #(
             bit_idx <= 3'd0;
             shift <= 8'h00;
             busy <= 1'b0;
+            frame_err <= 1'b0;
         end else begin
             case (state)
                 S_IDLE: begin
@@ -54,6 +57,7 @@ module uart_rx #(
                             bit_idx <= 3'd0;
                         end else begin
                             // Glitch, return idle.
+                            frame_err <= 1'b1;
                             state <= S_IDLE;
                         end
                     end else begin
@@ -77,7 +81,10 @@ module uart_rx #(
 
                 S_STOP: begin
                     if (ctr == 0) begin
-                        // Ignore framing error for now; still emit byte.
+                        // Still emit byte on framing error to keep interface robust.
+                        if (rx != 1'b1) begin
+                            frame_err <= 1'b1;
+                        end
                         data <= shift;
                         valid <= 1'b1;
                         state <= S_IDLE;

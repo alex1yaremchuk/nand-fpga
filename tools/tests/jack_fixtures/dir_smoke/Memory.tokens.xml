@@ -1,0 +1,18 @@
+<tokens>
+  <keyword> class </keyword>
+  <identifier> Memory </identifier>
+  <symbol> { </symbol>
+  <keyword> function </keyword>
+  <keyword> int </keyword>
+  <identifier> alloc </identifier>
+  <symbol> ( </symbol>
+  <keyword> int </keyword>
+  <identifier> size </identifier>
+  <symbol> ) </symbol>
+  <symbol> { </symbol>
+  <keyword> return </keyword>
+  <integerConstant> 2048 </integerConstant>
+  <symbol> ; </symbol>
+  <symbol> } </symbol>
+  <symbol> } </symbol>
+</tokens>

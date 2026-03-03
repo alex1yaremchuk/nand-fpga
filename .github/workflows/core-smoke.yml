@@ -1,0 +1,92 @@
+name: core-smoke
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  core-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Icarus Verilog
+        run: choco install iverilog -y --no-progress
+
+      - name: Verify toolchain
+        run: |
+          python --version
+          iverilog -V
+          vvp -V
+
+      - name: CPU core reset/boot TB
+        run: powershell -ExecutionPolicy Bypass -File tools/run_cpu_core_tb.ps1 -OutDir build/ci/tb
+
+      - name: CPU-memory timing TB
+        run: powershell -ExecutionPolicy Bypass -File tools/run_cpu_memory_timing_tb.ps1 -OutDir build/ci/tb
+
+      - name: Hack runner smoke
+        run: powershell -ExecutionPolicy Bypass -File tools/run_hack_runner_smoke.ps1 -OutDir build/ci/hack_runner_smoke
+
+      - name: Baseline program tests (sim_full)
+        run: powershell -ExecutionPolicy Bypass -File tools/run_baseline_program_tests.ps1 -Profile sim_full -OutDir build/ci/baseline_tests
+
+      - name: Assembler unit tests
+        run: powershell -ExecutionPolicy Bypass -File tools/run_hack_asm_tests.ps1 -OutDir build/ci/hack_asm_tests
+
+      - name: VM translator unit tests
+        run: powershell -ExecutionPolicy Bypass -File tools/run_hack_vm_tests.ps1 -OutDir build/ci/hack_vm_tests
+
+      - name: Jack tokenizer unit tests
+        run: powershell -ExecutionPolicy Bypass -File tools/run_hack_jack_tests.ps1 -OutDir build/ci/hack_jack_tests
+
+      - name: Jack pipeline smoke (sim_full)
+        run: powershell -ExecutionPolicy Bypass -File tools/run_jack_pipeline_smoke.ps1 -JackInput tools/programs/JackSmokeSys.jack -Profile sim_full -Cycles 200 -ExpectAddr 16 -ExpectValue 5 -Bootstrap -OutDir build/ci/jack_pipeline
+
+      - name: Jack directory smoke (sim_full)
+        run: powershell -ExecutionPolicy Bypass -File tools/run_jack_pipeline_smoke.ps1 -JackInput tools/programs/JackDirSmoke -Profile sim_full -Cycles 300 -ExpectAddr 16 -ExpectValue 4 -Bootstrap -OutDir build/ci/jack_dir_pipeline
+
+      - name: Jack corpus (sim_full)
+        run: powershell -ExecutionPolicy Bypass -File tools/run_jack_corpus_sim.ps1 -Profile sim_full -OutDir build/ci/jack_corpus
+
+      - name: Official Jack corpus compile pipeline (sim_full)
+        run: powershell -ExecutionPolicy Bypass -File tools/run_jack_official_corpus_sim.ps1 -Fetch -OutDir build/ci/jack_official_corpus
+
+      - name: Official Jack runtime smoke (sim_full, subset)
+        run: powershell -ExecutionPolicy Bypass -File tools/run_jack_official_runtime_sim.ps1 -Fetch -Case Seven,ConvertToBin -OutDir build/ci/jack_official_runtime
+
+      - name: Official Jack runtime fpga_fit subset (sim)
+        run: powershell -ExecutionPolicy Bypass -File tools/run_jack_official_runtime_fpga_subset_sim.ps1 -Fetch -OutDir build/ci/jack_official_runtime_fpga_fit
+
+      - name: Jack runtime extended smoke (sim_full)
+        run: powershell -ExecutionPolicy Bypass -File tools/run_jack_runtime_extended_smoke.ps1 -OutDir build/ci/jack_runtime_extended
+
+      - name: Project 12 API smoke (sim_full)
+        run: powershell -ExecutionPolicy Bypass -File tools/run_jack_project12_api_smoke.ps1 -Fetch -OutDir build/ci/jack_project12_api
+
+      - name: Project 12 OS strict smoke (sim_full subset)
+        run: powershell -ExecutionPolicy Bypass -File tools/run_jack_project12_os_strict_smoke.ps1 -Fetch -IncludeStringTest -Case ArrayTest,StringTest -OutDir build/ci/jack_project12_os_strict
+
+      - name: VM pipeline smoke (sim_full)
+        run: powershell -ExecutionPolicy Bypass -File tools/run_vm_pipeline_smoke.ps1 -VmInput tools/programs/VmSmokeSys.vm -Profile sim_full -Cycles 200 -ExpectAddr 5 -ExpectValue 5 -Bootstrap -OutDir build/ci/vm_pipeline
+
+      - name: fpga_fit resource budget checks
+        run: powershell -ExecutionPolicy Bypass -File tools/check_fpga_fit_resource_budgets.ps1 -OutDir build/ci/fpga_fit_budget
+
+      - name: Upload CI artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-smoke-build-ci
+          path: build/ci
+          if-no-files-found: warn

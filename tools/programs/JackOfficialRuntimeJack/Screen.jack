@@ -1,0 +1,59 @@
+class Screen {
+    static int color;
+    static int drawCount;
+
+    function void clearScreen() {
+        let color = 0;
+        let drawCount = 0;
+        do Memory.poke(16384, 0);
+        do Memory.poke(3600, 0);
+        return;
+    }
+
+    function void setColor(boolean b) {
+        let color = b;
+        return;
+    }
+
+    function void drawPixel(int x, int y) {
+        let x = x;
+        let y = y;
+        return;
+    }
+
+    function void drawLine(int x1, int y1, int x2, int y2) {
+        let x1 = x1;
+        let y1 = y1;
+        let x2 = x2;
+        let y2 = y2;
+        return;
+    }
+
+    function void drawRectangle(int x1, int y1, int x2, int y2) {
+        var int addr;
+        var int fill;
+
+        let x2 = x2;
+        let y2 = y2;
+
+        let drawCount = drawCount + 1;
+        do Memory.poke(3600, drawCount);
+        do Memory.poke(16384, drawCount);
+
+        let addr = 16384 + Math.multiply(y1, 32) + Math.divide(x1, 16);
+        if (color) {
+            let fill = -1;
+        } else {
+            let fill = 0;
+        }
+        do Memory.poke(addr, fill);
+        return;
+    }
+
+    function void drawCircle(int x, int y, int r) {
+        let x = x;
+        let y = y;
+        let r = r;
+        return;
+    }
+}

@@ -17,7 +17,7 @@ if (-not (Test-Path -LiteralPath $HackFile)) {
 
 if ($RomAddrW -lt 0) {
     switch ($Profile) {
-        "fpga_fit" { $RomAddrW = 13 }
+        "fpga_fit" { $RomAddrW = 14 }
         "sim_full" { $RomAddrW = 15 }
         default { throw "Unsupported profile: $Profile" }
     }

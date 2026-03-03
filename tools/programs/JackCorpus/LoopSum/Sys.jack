@@ -1,0 +1,11 @@
+class Sys {
+    static int result;
+
+    function void init() {
+        let result = Counter.fifteen();
+        while (true) {
+            let result = result;
+        }
+        return;
+    }
+}

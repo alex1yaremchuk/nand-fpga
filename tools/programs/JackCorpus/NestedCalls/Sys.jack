@@ -1,0 +1,11 @@
+class Sys {
+    static int result;
+
+    function void init() {
+        let result = B.plusTwo(A.one());
+        while (true) {
+            let result = result;
+        }
+        return;
+    }
+}

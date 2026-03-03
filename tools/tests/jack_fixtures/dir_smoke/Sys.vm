@@ -1,0 +1,24 @@
+function Sys.init 1
+push constant 2
+call Counter.new 1
+pop local 0
+push local 0
+call Counter.inc 1
+pop temp 0
+push local 0
+call Counter.inc 1
+pop temp 0
+push local 0
+call Counter.get 1
+pop static 0
+label WHILE_EXP_0
+push constant 0
+not
+not
+if-goto WHILE_END_1
+push static 0
+pop static 0
+goto WHILE_EXP_0
+label WHILE_END_1
+push constant 0
+return

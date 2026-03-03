@@ -1,0 +1,96 @@
+function Output.printChar 0
+push constant 3700
+push static 1
+add
+pop pointer 1
+push argument 0
+pop that 0
+push static 1
+push constant 1
+add
+pop static 1
+push constant 0
+return
+
+function Output.printString 2
+push argument 0
+call String.length 1
+pop local 1
+push constant 0
+pop local 0
+label OUTPUT$PSTR_LOOP
+push local 0
+push local 1
+lt
+if-goto OUTPUT$PSTR_BODY
+goto OUTPUT$PSTR_END
+label OUTPUT$PSTR_BODY
+push argument 0
+push local 0
+call String.charAt 2
+call Output.printChar 1
+pop temp 0
+push local 0
+push constant 1
+add
+pop local 0
+goto OUTPUT$PSTR_LOOP
+label OUTPUT$PSTR_END
+push constant 0
+return
+
+function Output.printInt 0
+push constant 3500
+push static 0
+add
+pop pointer 1
+push argument 0
+pop that 0
+push static 0
+push constant 1
+add
+pop static 0
+push constant 0
+return
+
+function Output.println 0
+push constant 10
+call Output.printChar 1
+pop temp 0
+push constant 0
+return
+
+function Output.backSpace 0
+push static 1
+push constant 0
+eq
+if-goto OUTPUT$BS_DONE
+push static 1
+push constant 1
+sub
+pop static 1
+push constant 3700
+push static 1
+add
+pop pointer 1
+push constant 0
+pop that 0
+label OUTPUT$BS_DONE
+push constant 0
+return
+
+function Output.moveCursor 0
+push argument 0
+pop static 2
+push argument 1
+pop static 3
+push constant 3598
+pop pointer 1
+push argument 0
+pop that 0
+push constant 3599
+pop pointer 1
+push argument 1
+pop that 0
+push constant 0
+return

@@ -1,0 +1,4 @@
+push constant 2
+push constant 3
+add
+pop temp 0

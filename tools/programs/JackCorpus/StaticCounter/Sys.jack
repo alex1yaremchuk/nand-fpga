@@ -1,0 +1,14 @@
+class Sys {
+    static int result;
+
+    function void init() {
+        do Accum.bump();
+        do Accum.bump();
+        let result = Accum.get();
+
+        while (true) {
+            let result = result;
+        }
+        return;
+    }
+}

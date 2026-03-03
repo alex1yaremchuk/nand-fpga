@@ -1,0 +1,3 @@
+function Counter.four 0
+push constant 4
+return

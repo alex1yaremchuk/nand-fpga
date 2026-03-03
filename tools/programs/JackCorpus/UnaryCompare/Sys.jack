@@ -1,0 +1,22 @@
+class Sys {
+    static int result;
+
+    function void init() {
+        if (~false) {
+            let result = 123;
+        } else {
+            let result = 0;
+        }
+
+        if (result = 123) {
+            let result = result + 1;
+        } else {
+            let result = 1;
+        }
+
+        while (true) {
+            let result = result;
+        }
+        return;
+    }
+}

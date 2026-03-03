@@ -1,0 +1,19 @@
+class Main {
+    function void main() {
+        var int a, b, c, d, e;
+
+        let a = Keyboard.readChar();
+        let b = Keyboard.readChar();
+        let c = Keyboard.readChar();
+        let d = Keyboard.readChar();
+        let e = Keyboard.readChar();
+
+        do Memory.poke(3840, a);
+        do Memory.poke(3841, b);
+        do Memory.poke(3842, c);
+        do Memory.poke(3843, d);
+        do Memory.poke(3844, e);
+        do Memory.poke(3848, 1);
+        return;
+    }
+}

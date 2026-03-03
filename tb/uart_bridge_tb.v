@@ -31,6 +31,7 @@ module uart_bridge_tb;
     wire [14:0] mem_addr;
     wire [15:0] mem_wdata;
     reg  [15:0] mem_rdata = 16'h0000;
+    reg         mem_ready = 1'b1;
 
     wire rom_we;
     wire rom_rd_req;
@@ -65,7 +66,8 @@ module uart_bridge_tb;
         .CLK_HZ(CLK_HZ),
         .BAUD(BAUD),
         .DATA_W(16),
-        .ADDR_W(15)
+        .ADDR_W(15),
+        .ARG_TIMEOUT_CYCLES(128)
     ) dut (
         .clk(clk),
         .rst(rst),
@@ -84,6 +86,7 @@ module uart_bridge_tb;
         .mem_addr(mem_addr),
         .mem_wdata(mem_wdata),
         .mem_rdata(mem_rdata),
+        .mem_ready(mem_ready),
         .rom_we(rom_we),
         .rom_rd_req(rom_rd_req),
         .rom_addr(rom_addr),
@@ -114,6 +117,7 @@ module uart_bridge_tb;
         .rx(dut_tx),
         .data(host_rx_data),
         .valid(host_rx_valid),
+        .frame_err(),
         .busy()
     );
 
@@ -258,6 +262,59 @@ module uart_bridge_tb;
         expect_true(rb0 == 8'h84, "RUN rsp code");
         expect_true({rb1, rb2} == 16'h0004, "RUN pc");
 
+        // Sequenced RUN 2 cycles (seq=0x11): execute once and cache response.
+        uart_send_byte(8'h0D); // CMD_SEQ
+        uart_send_byte(8'h11); // seq id
+        uart_send_byte(8'h04); // inner CMD_RUN
+        uart_send_byte(8'h00);
+        uart_send_byte(8'h00);
+        uart_send_byte(8'h00);
+        uart_send_byte(8'h02);
+        uart_recv_byte(rb0);
+        uart_recv_byte(rb1);
+        uart_recv_byte(rb2);
+        uart_recv_byte(rb3);
+        uart_recv_byte(rb4);
+        uart_recv_byte(rb5);
+        uart_recv_byte(rb6);
+        uart_recv_byte(rb7);
+        uart_recv_byte(rb8);
+        uart_recv_byte(rb9);
+        uart_recv_byte(rb10);
+        expect_true(rb0 == 8'h8D, "SEQ wrapper rsp code");
+        expect_true(rb1 == 8'h11, "SEQ wrapper seq echo");
+        expect_true(rb2 == 8'h08, "SEQ wrapper payload len");
+        expect_true(rb3 == 8'h84, "SEQ inner RUN rsp code");
+        expect_true({rb4, rb5} == 16'h0006, "SEQ RUN pc");
+        expect_true(cpu_pc == 15'd6, "SEQ RUN cpu_pc updated once");
+
+        // Duplicate sequenced command (same seq/cmd/args) must return cached
+        // response without executing CPU steps again.
+        uart_send_byte(8'h0D); // CMD_SEQ
+        uart_send_byte(8'h11); // same seq id
+        uart_send_byte(8'h04); // inner CMD_RUN
+        uart_send_byte(8'h00);
+        uart_send_byte(8'h00);
+        uart_send_byte(8'h00);
+        uart_send_byte(8'h02);
+        uart_recv_byte(rb0);
+        uart_recv_byte(rb1);
+        uart_recv_byte(rb2);
+        uart_recv_byte(rb3);
+        uart_recv_byte(rb4);
+        uart_recv_byte(rb5);
+        uart_recv_byte(rb6);
+        uart_recv_byte(rb7);
+        uart_recv_byte(rb8);
+        uart_recv_byte(rb9);
+        uart_recv_byte(rb10);
+        expect_true(rb0 == 8'h8D, "SEQ duplicate wrapper rsp code");
+        expect_true(rb1 == 8'h11, "SEQ duplicate seq echo");
+        expect_true(rb2 == 8'h08, "SEQ duplicate payload len");
+        expect_true(rb3 == 8'h84, "SEQ duplicate inner RUN rsp code");
+        expect_true({rb4, rb5} == 16'h0006, "SEQ duplicate cached pc");
+        expect_true(cpu_pc == 15'd6, "SEQ duplicate does not advance cpu_pc");
+
         // ROM write + read
         uart_send_byte(8'h08);
         uart_send_byte(8'h00);
@@ -293,6 +350,58 @@ module uart_bridge_tb;
         uart_send_byte(8'h0A);
         uart_recv_byte(rb0);
         expect_true(rb0 == 8'h8A, "HALT rsp code");
+
+        // DIAG baseline: all counters start at zero.
+        uart_send_byte(8'h0C);
+        uart_recv_byte(rb0);
+        uart_recv_byte(rb1);
+        uart_recv_byte(rb2);
+        uart_recv_byte(rb3);
+        uart_recv_byte(rb4);
+        uart_recv_byte(rb5);
+        uart_recv_byte(rb6);
+        uart_recv_byte(rb7);
+        expect_true(rb0 == 8'h8C, "DIAG rsp code");
+        expect_true({rb1, rb2} == 16'h0000, "DIAG rx_err zero");
+        expect_true({rb3, rb4} == 16'h0000, "DIAG desync zero");
+        expect_true({rb5, rb6} == 16'h0000, "DIAG unknown zero");
+
+        // Unknown command should return ERR and increment unknown counter.
+        uart_send_byte(8'hEE);
+        uart_recv_byte(rb0);
+        uart_recv_byte(rb1);
+        expect_true(rb0 == 8'hFF, "ERR rsp code unknown");
+        expect_true(rb1 == 8'hEE, "ERR unknown cmd echo");
+
+        uart_send_byte(8'h0C);
+        uart_recv_byte(rb0);
+        uart_recv_byte(rb1);
+        uart_recv_byte(rb2);
+        uart_recv_byte(rb3);
+        uart_recv_byte(rb4);
+        uart_recv_byte(rb5);
+        uart_recv_byte(rb6);
+        uart_recv_byte(rb7);
+        expect_true({rb5, rb6} == 16'h0001, "DIAG unknown count=1");
+
+        // Partial command timeout should return ERR 0xFE and increment desync.
+        uart_send_byte(8'h01); // PEEK
+        uart_send_byte(8'h12); // only high addr byte, low byte omitted
+        uart_recv_byte(rb0);
+        uart_recv_byte(rb1);
+        expect_true(rb0 == 8'hFF, "ERR rsp code timeout");
+        expect_true(rb1 == 8'hFE, "ERR timeout marker");
+
+        uart_send_byte(8'h0C);
+        uart_recv_byte(rb0);
+        uart_recv_byte(rb1);
+        uart_recv_byte(rb2);
+        uart_recv_byte(rb3);
+        uart_recv_byte(rb4);
+        uart_recv_byte(rb5);
+        uart_recv_byte(rb6);
+        uart_recv_byte(rb7);
+        expect_true({rb3, rb4} == 16'h0001, "DIAG desync count=1");
 
         // SCRDELTA sync (build baseline, no data returned).
         mem[15'h4000] = 16'h0001;

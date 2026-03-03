@@ -1,0 +1,15 @@
+class Sys {
+    static Array ram;
+    static int result;
+
+    function void init() {
+        let ram = 0;
+        let ram[200] = 42;
+        let result = ram[200];
+
+        while (true) {
+            let result = result;
+        }
+        return;
+    }
+}

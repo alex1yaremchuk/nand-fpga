@@ -11,6 +11,24 @@ module top(
     output wire tm_stb,
     output wire tm_clk,
     inout  wire tm_dio
+`ifdef CFG_ENABLE_DDR3_MEM
+    ,
+    output wire [13:0] ddr_addr,
+    output wire [2:0] ddr_bank,
+    output wire ddr_cs,
+    output wire ddr_ras,
+    output wire ddr_cas,
+    output wire ddr_we,
+    output wire ddr_ck,
+    output wire ddr_ck_n,
+    output wire ddr_cke,
+    output wire ddr_odt,
+    output wire ddr_reset_n,
+    output wire [1:0] ddr_dm,
+    inout  wire [15:0] ddr_dq,
+    inout  wire [1:0] ddr_dqs,
+    inout  wire [1:0] ddr_dqs_n
+`endif
 `ifdef CFG_ENABLE_UART_BRIDGE
     ,
     input  wire uart_rx,
@@ -18,8 +36,12 @@ module top(
 `endif
 );
 
+`ifdef CFG_ENABLE_DDR3_MEM
+    localparam integer CLK_HZ = 100_000_000;
+`else
     localparam integer CLK_HZ = 27_000_000;
-    localparam integer POLL_CYCLES = 540_000; // 20 ms
+`endif
+    localparam integer POLL_CYCLES = (CLK_HZ / 50); // 20 ms
     localparam integer DATA_W = `DATA_W;
     localparam integer ADDR_W = 15;
     localparam integer ROM_ADDR_W = `CFG_ROM_ADDR_W;
@@ -61,6 +83,8 @@ module top(
     wire [DATA_W-1:0] cpu_d_dbg;
 
     wire [DATA_W-1:0] mem_q;
+    wire mem_ready;
+    wire core_clk;
     wire [DATA_W-1:0] rom_instr;
 
 `ifdef CFG_ENABLE_UART_BRIDGE
@@ -87,13 +111,13 @@ module top(
 `endif
 
 `ifdef CFG_ENABLE_UART_BRIDGE
-    wire cpu_step = cpu_run_en | cpu_step_req | uart_cpu_step_pulse;
+    wire cpu_step_raw = cpu_run_en | cpu_step_req | uart_cpu_step_pulse;
     wire cpu_reset = cpu_reset_req | uart_cpu_reset_pulse;
     wire uart_activity = uart_cpu_step_pulse | uart_cpu_reset_pulse |
                          uart_mem_req | uart_rom_we | uart_rom_rd_req |
                          uart_kbd_we | uart_cpu_run_set | uart_cpu_run_clr;
 `else
-    wire cpu_step = cpu_run_en | cpu_step_req;
+    wire cpu_step_raw = cpu_run_en | cpu_step_req;
     wire cpu_reset = cpu_reset_req;
     wire uart_activity = 1'b0;
 `endif
@@ -101,6 +125,7 @@ module top(
     wire cpu_run_en = cpu_run & (page == PAGE_CPU);
 
     wire mem_use_cpu = (page == PAGE_CPU);
+    wire mem_use_ui = (page == PAGE_MEM);
 `ifdef CFG_ENABLE_UART_BRIDGE
     wire mem_use_uart = uart_mem_req;
     wire mem_load = mem_use_uart ? uart_mem_we :
@@ -109,11 +134,15 @@ module top(
                                  (mem_use_cpu ? cpu_addressM : edit_addr);
     wire [DATA_W-1:0] mem_d = mem_use_uart ? uart_mem_data :
                               (mem_use_cpu ? cpu_outM : mem_ui_data);
+    wire mem_req_active = mem_use_uart | mem_use_cpu | mem_use_ui;
 `else
     wire mem_load = mem_use_cpu ? cpu_writeM : mem_ui_we;
     wire [ADDR_W-1:0] mem_addr = mem_use_cpu ? cpu_addressM : edit_addr;
     wire [DATA_W-1:0] mem_d = mem_use_cpu ? cpu_outM : mem_ui_data;
+    wire mem_req_active = mem_use_cpu | mem_use_ui;
 `endif
+
+    wire cpu_step = cpu_step_raw & (mem_use_cpu ? mem_ready : 1'b1);
 
 `ifdef CFG_ENABLE_UART_BRIDGE
     wire rom_prog_we_eff = uart_rom_we ? 1'b1 : rom_prog_we;
@@ -215,7 +244,7 @@ module top(
     key_debounce #(
         .WIDTH(5)
     ) u_board_keys (
-        .clk(Clock),
+        .clk(core_clk),
         .sample_tick(tick_1ms),
         .keys_level(board_level),
         .stable_level(board_stable),
@@ -227,7 +256,7 @@ module top(
         .BIT_HZ(100_000),
         .REFRESH_HZ(40)
     ) u_tx (
-        .clk(Clock),
+        .clk(core_clk),
         .enable(!rx_active),
         .frame_data(frame_data),
         .brightness(3'd7),
@@ -243,7 +272,7 @@ module top(
         .CLK_HZ(CLK_HZ),
         .BIT_HZ(100_000)
     ) u_rx (
-        .clk(Clock),
+        .clk(core_clk),
         .start(rx_start),
         .dio_in(tm_dio_in),
         .stb(rx_stb),
@@ -263,7 +292,7 @@ module top(
         .ADDR_W(ADDR_W),
         .SCREEN_ADDR_W(MEMMAP_SCREEN_ADDR_W)
     ) u_uart_bridge (
-        .clk(Clock),
+        .clk(core_clk),
         .rst(uart_bridge_rst),
         .uart_rx(uart_rx),
         .uart_tx(uart_tx),
@@ -280,6 +309,7 @@ module top(
         .mem_addr(uart_mem_addr),
         .mem_wdata(uart_mem_data),
         .mem_rdata(mem_q),
+        .mem_ready(mem_ready),
         .rom_we(uart_rom_we),
         .rom_rd_req(uart_rom_rd_req),
         .rom_addr(uart_rom_addr),
@@ -290,6 +320,40 @@ module top(
     );
 `endif
 
+`ifdef CFG_ENABLE_DDR3_MEM
+    memory_map_ddr3 #(
+        .WIDTH(DATA_W),
+        .SCREEN_ADDR_W(MEMMAP_SCREEN_ADDR_W)
+    ) u_mem (
+        .ref_clk(Clock),
+        .req(mem_req_active),
+        .load(mem_load),
+        .addr(mem_addr),
+        .d(mem_d),
+        .kbd_in(kbd_word),
+        .q(mem_q),
+        .ready(mem_ready),
+        .core_clk(core_clk),
+        .ddr_addr(ddr_addr),
+        .ddr_bank(ddr_bank),
+        .ddr_cs(ddr_cs),
+        .ddr_ras(ddr_ras),
+        .ddr_cas(ddr_cas),
+        .ddr_we(ddr_we),
+        .ddr_ck(ddr_ck),
+        .ddr_ck_n(ddr_ck_n),
+        .ddr_cke(ddr_cke),
+        .ddr_odt(ddr_odt),
+        .ddr_reset_n(ddr_reset_n),
+        .ddr_dm(ddr_dm),
+        .ddr_dq(ddr_dq),
+        .ddr_dqs(ddr_dqs),
+        .ddr_dqs_n(ddr_dqs_n)
+    );
+`else
+    assign core_clk = Clock;
+    assign mem_ready = 1'b1;
+
     memory_map #(
         .WIDTH(DATA_W),
         .RAM16K_USE_BRAM(MEMMAP_RAM16K_USE_BRAM),
@@ -297,19 +361,20 @@ module top(
         .USE_SCREEN_BRAM(MEMMAP_USE_SCREEN_BRAM),
         .SCREEN_ADDR_W(MEMMAP_SCREEN_ADDR_W)
     ) u_mem (
-        .clk(Clock),
+        .clk(core_clk),
         .load(mem_load),
         .addr(mem_addr),
         .d(mem_d),
         .kbd_in(kbd_word),
         .q(mem_q)
     );
+`endif
 
     rom32k_prog #(
         .WIDTH(DATA_W),
         .ROM_ADDR_W(ROM_ADDR_W)
     ) u_rom (
-        .clk(Clock),
+        .clk(core_clk),
         .prog_we(rom_prog_we_eff),
         .prog_addr(rom_prog_addr_eff),
         .prog_data(rom_prog_data_eff),
@@ -321,7 +386,7 @@ module top(
         .DATA_W(DATA_W),
         .ADDR_W(ADDR_W)
     ) u_cpu (
-        .clk(Clock),
+        .clk(core_clk),
         .reset(cpu_reset),
         .step(cpu_step),
         .instr(rom_instr),
@@ -389,7 +454,7 @@ module top(
         end
     end
 
-    always @(posedge Clock) begin
+    always @(posedge core_clk) begin
         rx_start <= 1'b0;
         rom_prog_we <= 1'b0;
         mem_ui_we <= 1'b0;

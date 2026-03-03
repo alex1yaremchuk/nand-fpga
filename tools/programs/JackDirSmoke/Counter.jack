@@ -1,0 +1,5 @@
+class Counter {
+    function int four() {
+        return 4;
+    }
+}

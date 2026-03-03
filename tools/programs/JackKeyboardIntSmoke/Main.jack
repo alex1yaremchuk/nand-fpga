@@ -1,0 +1,21 @@
+class Main {
+    function void main() {
+        var int a, b, c;
+        var String s;
+
+        let a = Keyboard.readInt("A?");
+        let b = Keyboard.readInt("B?");
+        let s = Keyboard.readLine("C?");
+        let c = s.intValue();
+
+        do Memory.poke(3820, a);
+        do Memory.poke(3821, b);
+        do Memory.poke(3822, c);
+        do Memory.poke(3823, s.length());
+        do Memory.poke(3824, s.charAt(0));
+        do Memory.poke(3825, s.charAt(1));
+        do Memory.poke(3826, s.charAt(2));
+        do Memory.poke(3830, 1);
+        return;
+    }
+}

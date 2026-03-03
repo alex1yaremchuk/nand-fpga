@@ -1,0 +1,34 @@
+<tokens>
+  <keyword> class </keyword>
+  <identifier> Main </identifier>
+  <symbol> { </symbol>
+  <keyword> function </keyword>
+  <keyword> void </keyword>
+  <identifier> main </identifier>
+  <symbol> ( </symbol>
+  <symbol> ) </symbol>
+  <symbol> { </symbol>
+  <keyword> var </keyword>
+  <keyword> int </keyword>
+  <identifier> x </identifier>
+  <symbol> ; </symbol>
+  <keyword> let </keyword>
+  <identifier> x </identifier>
+  <symbol> = </symbol>
+  <integerConstant> 2 </integerConstant>
+  <symbol> + </symbol>
+  <integerConstant> 3 </integerConstant>
+  <symbol> ; </symbol>
+  <keyword> do </keyword>
+  <identifier> Output </identifier>
+  <symbol> . </symbol>
+  <identifier> printString </identifier>
+  <symbol> ( </symbol>
+  <stringConstant> x&lt;y &amp; z&gt; </stringConstant>
+  <symbol> ) </symbol>
+  <symbol> ; </symbol>
+  <keyword> return </keyword>
+  <symbol> ; </symbol>
+  <symbol> } </symbol>
+  <symbol> } </symbol>
+</tokens>

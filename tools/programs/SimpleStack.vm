@@ -1,0 +1,6 @@
+// Simple VM smoke program:
+// computes 2 + 3 and stores into temp 0 (R5).
+push constant 2
+push constant 3
+add
+pop temp 0

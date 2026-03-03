@@ -75,7 +75,7 @@ if (($RamInitFile -ne "") -and (-not (Test-Path -LiteralPath $RamInitFile))) {
 
 if ($RomAddrW -lt 0) {
     switch ($Profile) {
-        "fpga_fit" { $RomAddrW = 13 }
+        "fpga_fit" { $RomAddrW = 14 }
         "sim_full" { $RomAddrW = 15 }
         default { throw "Unsupported profile: $Profile" }
     }
@@ -83,7 +83,7 @@ if ($RomAddrW -lt 0) {
 
 if ($ScreenAddrW -lt 0) {
     switch ($Profile) {
-        "fpga_fit" { $ScreenAddrW = 13 }
+        "fpga_fit" { $ScreenAddrW = 9 }
         "sim_full" { $ScreenAddrW = 13 }
         default { throw "Unsupported profile: $Profile" }
     }
@@ -93,16 +93,23 @@ if ($ScreenWords -lt 0) {
     $ScreenWords = [int][math]::Pow(2, $ScreenAddrW)
 }
 
-$checkScript = Join-Path $repoRoot "tools/check_hack_rom_size.ps1"
+$checkScript = Join-Path $repoRoot "tools/check_profile_resource_budget.ps1"
 if (-not (Test-Path -LiteralPath $checkScript)) {
-    Write-Host "[ERROR] Missing ROM check script: $checkScript"
+    Write-Host "[ERROR] Missing resource budget script: $checkScript"
     exit 2
 }
 
-Write-Host "[INFO] Verifying ROM size..."
-powershell -ExecutionPolicy Bypass -File $checkScript -HackFile $HackFile -Profile $Profile -RomAddrW $RomAddrW
+Write-Host "[INFO] Verifying resource budgets..."
+powershell -ExecutionPolicy Bypass -File $checkScript `
+    -HackFile $HackFile `
+    -Profile $Profile `
+    -RomAddrW $RomAddrW `
+    -ScreenAddrW $ScreenAddrW `
+    -RamBase $RamBase `
+    -RamWords $RamWords `
+    -ScreenWords $ScreenWords
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "[ERROR] ROM size check failed."
+    Write-Host "[ERROR] Resource budget check failed."
     exit $LASTEXITCODE
 }
 

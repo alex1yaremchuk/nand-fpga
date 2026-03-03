@@ -57,11 +57,12 @@ module hack_runner_tb;
     integer ram_words = 256;
     integer screen_words = SCREEN_WORDS_MAX;
 
-    reg [1023:0] hack_file = "";
-    reg [1023:0] ram_init_file = "";
-    reg [1023:0] pc_dump_file = "pc_dump.txt";
-    reg [1023:0] ram_dump_file = "ram_dump.txt";
-    reg [1023:0] screen_dump_file = "screen_dump.txt";
+    // Keep path buffers large enough for long Windows absolute paths.
+    reg [4095:0] hack_file = "";
+    reg [4095:0] ram_init_file = "";
+    reg [4095:0] pc_dump_file = "pc_dump.txt";
+    reg [4095:0] ram_dump_file = "ram_dump.txt";
+    reg [4095:0] screen_dump_file = "screen_dump.txt";
 
     integer fd_pc;
     integer fd_ram;

@@ -1,0 +1,12 @@
+function Keyboard.readInt 0
+push constant 3000
+push static 0
+add
+call Memory.peek 1
+pop temp 0
+push static 0
+push constant 1
+add
+pop static 0
+push temp 0
+return

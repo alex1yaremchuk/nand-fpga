@@ -9,6 +9,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 
@@ -65,6 +66,18 @@ COMP_TABLE = {
     "D|M": "1010101",
 }
 
+# Commutative aliases accepted by reference-style assemblers.
+COMP_TABLE.update(
+    {
+        "A+D": COMP_TABLE["D+A"],
+        "M+D": COMP_TABLE["D+M"],
+        "A&D": COMP_TABLE["D&A"],
+        "M&D": COMP_TABLE["D&M"],
+        "A|D": COMP_TABLE["D|A"],
+        "M|D": COMP_TABLE["D|M"],
+    }
+)
+
 BASE_SYMBOLS = {
     "SP": 0,
     "LCL": 1,
@@ -76,6 +89,27 @@ BASE_SYMBOLS = {
 }
 for i in range(16):
     BASE_SYMBOLS[f"R{i}"] = i
+
+SYMBOL_RE = re.compile(r"^[A-Za-z_.$:][A-Za-z0-9_.$:]*$")
+
+
+def _validate_symbol(symbol: str) -> None:
+    if not SYMBOL_RE.fullmatch(symbol):
+        raise ValueError(f"Invalid symbol name: {symbol!r}")
+
+
+def _dest_bits(dest: str) -> str:
+    # Accept any permutation of A/D/M without duplicates (e.g. DM, MA, AMD).
+    if not dest:
+        return DEST_TABLE[""]
+    bits = {"A": "0", "D": "0", "M": "0"}
+    for ch in dest:
+        if ch not in bits:
+            raise ValueError(f"Unknown dest field: {dest!r}")
+        if bits[ch] == "1":
+            raise ValueError(f"Duplicate register in dest field: {dest!r}")
+        bits[ch] = "1"
+    return bits["A"] + bits["D"] + bits["M"]
 
 
 def clean_lines(src: str) -> list[str]:
@@ -95,6 +129,9 @@ def first_pass(lines: list[str]) -> dict[str, int]:
             label = line[1:-1].strip()
             if not label:
                 raise ValueError("Empty label declaration")
+            _validate_symbol(label)
+            if label in symbols:
+                raise ValueError(f"Duplicate label declaration: {label!r}")
             symbols[label] = rom_addr
             continue
         rom_addr += 1
@@ -112,18 +149,16 @@ def parse_c(line: str) -> str:
     else:
         comp, jump = rest, ""
 
-    dest = dest.strip()
-    comp = comp.strip()
-    jump = jump.strip()
+    dest = "".join(dest.split())
+    comp = "".join(comp.split())
+    jump = "".join(jump.split())
 
     if comp not in COMP_TABLE:
         raise ValueError(f"Unknown comp field: {comp!r}")
-    if dest not in DEST_TABLE:
-        raise ValueError(f"Unknown dest field: {dest!r}")
     if jump not in JUMP_TABLE:
         raise ValueError(f"Unknown jump field: {jump!r}")
 
-    return "111" + COMP_TABLE[comp] + DEST_TABLE[dest] + JUMP_TABLE[jump]
+    return "111" + COMP_TABLE[comp] + _dest_bits(dest) + JUMP_TABLE[jump]
 
 
 def second_pass(lines: list[str], symbols: dict[str, int]) -> list[str]:
@@ -138,13 +173,21 @@ def second_pass(lines: list[str], symbols: dict[str, int]) -> list[str]:
             if sym.isdigit():
                 value = int(sym, 10)
             else:
+                _validate_symbol(sym)
                 if sym not in symbols:
                     symbols[sym] = next_var
                     next_var += 1
                 value = symbols[sym]
 
             if value < 0 or value > 0x7FFF:
-                raise ValueError(f"A-instruction out of range: {line!r}")
+                if sym.isdigit():
+                    raise ValueError(
+                        f"A-instruction out of range: {line!r} (value={value}, allowed 0..32767)"
+                    )
+                raise ValueError(
+                    f"A-instruction out of range: {line!r} "
+                    f"(resolved {sym!r}={value}, allowed 0..32767)"
+                )
             out.append(format(value, "016b"))
             continue
 

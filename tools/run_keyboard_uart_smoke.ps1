@@ -3,7 +3,13 @@ param(
     [string]$Port,
 
     [int]$Baud = 115200,
-    [int]$RomAddrW = 13,
+    [int]$RomAddrW = 14,
+    [int]$SoakIterations = 40,
+    [int]$LatencyIterations = 40,
+    [double]$LatencyP95Ms = 150,
+    [switch]$SkipLatency,
+    [switch]$SkipProtocolDiag,
+    [switch]$SkipSoak,
     [string]$OutDir = "build/keyboard_uart_smoke"
 )
 
@@ -13,8 +19,10 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $asmTool = Join-Path $repoRoot "tools/hack_asm.py"
 $client = Join-Path $repoRoot "tools/hack_uart_client.py"
 $asmPath = Join-Path $repoRoot "tools/programs/KeyboardScreen.asm"
+$soakScript = Join-Path $repoRoot "tools/run_keyboard_uart_soak.ps1"
+$latencyScript = Join-Path $repoRoot "tools/run_keyboard_uart_latency.ps1"
 
-foreach ($f in @($asmTool, $client, $asmPath)) {
+foreach ($f in @($asmTool, $client, $asmPath, $soakScript, $latencyScript)) {
     if (-not (Test-Path -LiteralPath $f)) {
         Write-Host "[ERROR] Missing file: $f"
         exit 2
@@ -90,7 +98,37 @@ function Read-U16Hex([string]$text) {
     throw "Unexpected hex word output: '$text'"
 }
 
+function Get-UartDiag {
+    $text = (Invoke-UartClient diag --json | Select-Object -Last 1).Trim()
+    try {
+        $obj = $text | ConvertFrom-Json
+    }
+    catch {
+        throw "Failed to parse diag JSON: '$text'"
+    }
+    return @{
+        RxErr = [int]$obj.rx_err
+        Desync = [int]$obj.desync
+        Unknown = [int]$obj.unknown_cmd
+        Retry = [int]$obj.retry_count
+    }
+}
+
+function Get-CounterDelta([int]$start, [int]$end) {
+    if ($end -ge $start) {
+        return ($end - $start)
+    }
+    return (65536 - $start + $end)
+}
+
 Write-Host "[INFO] Running keyboard behavior checks..."
+
+$diagStart = $null
+if (-not $SkipProtocolDiag) {
+    $diagStart = Get-UartDiag
+    Write-Host ("[INFO] Protocol diag start: rx_err={0} desync={1} unknown={2}" -f `
+        $diagStart.RxErr, $diagStart.Desync, $diagStart.Unknown)
+}
 
 # Baseline: no key -> screen[0] must be 0.
 Invoke-UartClient run 20 | Out-Null
@@ -130,4 +168,51 @@ if ($screen0 -ne 0x0000) {
 Write-Host "[OK] Keyboard UART smoke passed."
 Write-Host "  Program : $hack"
 Write-Host "  Load out: $loadOut"
+
+if (-not $SkipSoak) {
+    Write-Host "[INFO] Running keyboard soak gate..."
+    $soakOut = Join-Path $outAbs "soak"
+    powershell -ExecutionPolicy Bypass -File $soakScript `
+        -Port $Port `
+        -Baud $Baud `
+        -RomAddrW $RomAddrW `
+        -Iterations $SoakIterations `
+        -OutDir $soakOut
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Keyboard soak gate failed"
+        exit $LASTEXITCODE
+    }
+}
+
+if (-not $SkipLatency) {
+    Write-Host "[INFO] Running keyboard latency gate..."
+    $latOut = Join-Path $outAbs "latency"
+    powershell -ExecutionPolicy Bypass -File $latencyScript `
+        -Port $Port `
+        -Baud $Baud `
+        -RomAddrW $RomAddrW `
+        -Iterations $LatencyIterations `
+        -P95ThresholdMs $LatencyP95Ms `
+        -OutDir $latOut
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Keyboard latency gate failed"
+        exit $LASTEXITCODE
+    }
+}
+
+if (-not $SkipProtocolDiag) {
+    $diagEnd = Get-UartDiag
+    $dRxErr = Get-CounterDelta $diagStart.RxErr $diagEnd.RxErr
+    $dDesync = Get-CounterDelta $diagStart.Desync $diagEnd.Desync
+    $dUnknown = Get-CounterDelta $diagStart.Unknown $diagEnd.Unknown
+
+    Write-Host ("[INFO] Protocol diag delta: d_rx_err={0} d_desync={1} d_unknown={2}" -f `
+        $dRxErr, $dDesync, $dUnknown)
+
+    if (($dRxErr -ne 0) -or ($dDesync -ne 0) -or ($dUnknown -ne 0)) {
+        Write-Host "[ERROR] Protocol diagnostics gate failed (expected zero deltas)."
+        exit 1
+    }
+}
+
 exit 0

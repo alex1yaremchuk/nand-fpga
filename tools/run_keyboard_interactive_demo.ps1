@@ -3,9 +3,11 @@ param(
     [string]$Port,
 
     [int]$Baud = 115200,
-    [int]$RomAddrW = 13,
-    [int]$WordsPerRow = 8,
-    [int]$Rows = 8,
+    [ValidateSet("fpga_fit", "sim_full")]
+    [string]$Profile = "fpga_fit",
+    [int]$RomAddrW = -1,
+    [int]$WordsPerRow = -1,
+    [int]$Rows = -1,
     [string]$OutDir = "build/keyboard_interactive_demo",
     [switch]$NoViewer
 )
@@ -28,6 +30,21 @@ $python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $python) {
     Write-Host "[ERROR] python not found in PATH"
     exit 3
+}
+
+$romDefault = if ($Profile -eq "sim_full") { 15 } else { 14 }
+$wordsPerRowDefault = if ($Profile -eq "sim_full") { 32 } else { 8 }
+$rowsDefault = if ($Profile -eq "sim_full") { 16 } else { 32 }
+$screenWords = if ($Profile -eq "sim_full") { 8192 } else { 512 }
+
+if (-not $PSBoundParameters.ContainsKey("RomAddrW")) {
+    $RomAddrW = $romDefault
+}
+if (-not $PSBoundParameters.ContainsKey("WordsPerRow")) {
+    $WordsPerRow = $wordsPerRowDefault
+}
+if (-not $PSBoundParameters.ContainsKey("Rows")) {
+    $Rows = $rowsDefault
 }
 
 $outAbs = if ([System.IO.Path]::IsPathRooted($OutDir)) { $OutDir } else { Join-Path $repoRoot $OutDir }
@@ -70,14 +87,14 @@ Invoke-UartClientWithRetry `
     --rom-addr-w $RomAddrW `
     --clear-ram-base 0 `
     --clear-ram-words 16 `
-    --clear-screen-words 256 `
+    --clear-screen-words $screenWords `
     --rom-verify `
     --out-dir $loadOut
 
 if ($NoViewer) {
     Write-Host "[OK] Program loaded."
     Write-Host "Run viewer manually:"
-    Write-Host "  python tools/hack_uart_client.py --port $Port --baud $Baud viewer --words-per-row $WordsPerRow --rows $Rows --auto-run"
+    Write-Host "  python tools/hack_uart_client.py --port $Port --baud $Baud viewer --words-per-row $WordsPerRow --rows $Rows --auto-run --run-cycles 8 --key-hold-ms 40 --kbd-clear-heartbeat-ms 250 --hard-clear-per-frame"
     exit 0
 }
 
@@ -89,5 +106,9 @@ Write-Host "Controls: q=quit, space=run/pause, r=reset, s=state, x=key up"
     viewer `
     --words-per-row $WordsPerRow `
     --rows $Rows `
-    --auto-run
+    --auto-run `
+    --run-cycles 8 `
+    --key-hold-ms 40 `
+    --kbd-clear-heartbeat-ms 250 `
+    --hard-clear-per-frame
 exit $LASTEXITCODE

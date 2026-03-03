@@ -1,0 +1,8 @@
+class Main {
+    function void main() {
+        var int x;
+        let x = 2 + 3;
+        do Output.printString("x<y & z>");
+        return;
+    }
+}

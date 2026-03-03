@@ -1,0 +1,76 @@
+class Keyboard {
+    static int readIntIndex;
+    static int keyIndex;
+    static int lineOffset;
+    static int readCharIndex;
+    static int readCharCount;
+
+    function int keyPressed() {
+        var int key;
+        let key = Memory.peek(3100 + keyIndex);
+        let keyIndex = keyIndex + 1;
+        return key;
+    }
+
+    function int readChar() {
+        var int ch;
+
+        if (readCharIndex = 0) {
+            let readCharCount = Memory.peek(3300);
+            let readCharIndex = 0;
+        }
+
+        if (readCharIndex < readCharCount) {
+            let ch = Memory.peek(3301 + readCharIndex);
+            let readCharIndex = readCharIndex + 1;
+            return ch;
+        }
+
+        return Keyboard.keyPressed();
+    }
+
+    function int readInt(String prompt) {
+        var int value;
+        var String line;
+
+        let prompt = prompt;
+        let value = Memory.peek(3000 + readIntIndex);
+        let readIntIndex = readIntIndex + 1;
+
+        if (value = 32767) {
+            let line = Keyboard.readLine(prompt);
+            return line.intValue();
+        }
+
+        return value;
+    }
+
+    function String readLine(String prompt) {
+        var int len;
+        var int i;
+        var int ch;
+        var int base;
+        var String out;
+
+        let prompt = prompt;
+        let base = lineOffset;
+        let len = Memory.peek(3200 + base);
+
+        if (len = 32767) {
+            let lineOffset = lineOffset + 1;
+            return String.new(0);
+        }
+
+        let out = String.new(len);
+        let i = 0;
+
+        while (i < len) {
+            let ch = Memory.peek(3200 + base + 1 + i);
+            do out.appendChar(ch);
+            let i = i + 1;
+        }
+
+        let lineOffset = lineOffset + len + 1;
+        return out;
+    }
+}

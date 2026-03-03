@@ -1,0 +1,128 @@
+function Keyboard.keyPressed 0
+push constant 3100
+push static 1
+add
+call Memory.peek 1
+pop temp 0
+push static 1
+push constant 1
+add
+pop static 1
+push temp 0
+return
+
+function Keyboard.readChar 1
+push static 4
+push constant 0
+eq
+if-goto KEYBOARD$READCHAR_INIT
+goto KEYBOARD$READCHAR_CONT
+label KEYBOARD$READCHAR_INIT
+push constant 3300
+call Memory.peek 1
+pop static 5
+push constant 0
+pop static 4
+label KEYBOARD$READCHAR_CONT
+push static 4
+push static 5
+lt
+if-goto KEYBOARD$READCHAR_SCRIPT
+call Keyboard.keyPressed 0
+return
+label KEYBOARD$READCHAR_SCRIPT
+push constant 3300
+push constant 1
+add
+push static 4
+add
+call Memory.peek 1
+pop local 0
+push static 4
+push constant 1
+add
+pop static 4
+push local 0
+return
+
+function Keyboard.readInt 1
+push constant 3000
+push static 0
+add
+call Memory.peek 1
+pop local 0
+push static 0
+push constant 1
+add
+pop static 0
+push local 0
+push constant 32767
+eq
+if-goto KEYBOARD$READINT_FROM_LINE
+push local 0
+return
+label KEYBOARD$READINT_FROM_LINE
+push argument 0
+call Keyboard.readLine 1
+call String.intValue 1
+return
+
+function Keyboard.readLine 5
+push static 2
+pop local 3
+push constant 3200
+push local 3
+add
+call Memory.peek 1
+pop local 0
+push local 0
+push constant 32767
+eq
+if-goto KEYBOARD$READLINE_EMPTY
+push local 0
+call String.new 1
+pop local 2
+push constant 0
+pop local 1
+label KEYBOARD$READLINE_LOOP
+push local 1
+push local 0
+lt
+if-goto KEYBOARD$READLINE_BODY
+goto KEYBOARD$READLINE_END
+label KEYBOARD$READLINE_BODY
+push constant 3200
+push local 3
+add
+push constant 1
+add
+push local 1
+add
+call Memory.peek 1
+pop local 4
+push local 2
+push local 4
+call String.appendChar 2
+pop temp 0
+push local 1
+push constant 1
+add
+pop local 1
+goto KEYBOARD$READLINE_LOOP
+label KEYBOARD$READLINE_END
+push static 2
+push local 0
+add
+push constant 1
+add
+pop static 2
+push local 2
+return
+label KEYBOARD$READLINE_EMPTY
+push static 2
+push constant 1
+add
+pop static 2
+push constant 0
+call String.new 1
+return

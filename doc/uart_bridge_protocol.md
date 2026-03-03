@@ -37,6 +37,20 @@ Binary protocol over UART 8N1.
   - Response: `0x8B rsp_flags count [addr_hi addr_lo data_hi data_lo] * count`
   - `rsp_flags bit0`: scan wrapped to screen base during this packet.
   - `rsp_flags bit1`: more deltas pending (poll again).
+- `0x0C DIAG`
+  - Returns UART bridge diagnostics counters.
+  - Response: `0x8C rx_err_hi rx_err_lo desync_hi desync_lo unknown_hi unknown_lo reserved`
+  - `rx_err`: RX framing/start-glitch error count (saturating 16-bit).
+  - `desync`: partial-command timeout/resync count (saturating 16-bit).
+  - `unknown`: unknown-command count (saturating 16-bit).
+  - `reserved bit0`: sequenced wrapper capability (`1` = `CMD_SEQ` supported).
+- `0x0D SEQ seq_id inner_cmd a0 a1 a2 a3`
+  - Sequenced wrapper (idempotent retry support on host retries).
+  - `inner_cmd` is any legacy command (`0x01..0x0C`, except nested `SEQ`).
+  - `a0..a3` are the inner command arguments (unused tail bytes are ignored).
+  - Response: `0x8D seq_id inner_len [inner_response_bytes...]`
+  - `inner_response_bytes` is exactly the legacy response payload.
+  - Duplicate request with same `(seq_id, inner_cmd, a0..a3)` returns cached wrapped response without re-executing side effects.
 
 ## Flags byte
 - `bit0`: CPU run enabled (`1` running, `0` paused)
@@ -44,6 +58,8 @@ Binary protocol over UART 8N1.
 
 ## Error response
 - Unknown command: `0xFF <cmd>`
+- Partial/malformed command timeout (resync): `0xFF 0xFE`
+- Nested `SEQ` is rejected with inner error payload marker `0xFD` (inside `0x8D` wrapper).
 
 ## Notes
 - Memory/ROM reads are synchronous in RTL; bridge inserts wait states internally.

@@ -1,0 +1,9 @@
+// VM smoke for bootstrap mode:
+// Sys.init computes 2 + 3 and stores result to temp 0 (R5).
+function Sys.init 0
+push constant 2
+push constant 3
+add
+pop temp 0
+label END
+goto END

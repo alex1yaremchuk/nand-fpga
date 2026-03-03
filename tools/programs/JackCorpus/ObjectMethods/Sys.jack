@@ -1,0 +1,15 @@
+class Sys {
+    static Counter obj;
+    static int result;
+
+    function void init() {
+        let obj = 700;
+        do obj.set(42);
+        let result = obj.get();
+
+        while (true) {
+            let result = result;
+        }
+        return;
+    }
+}

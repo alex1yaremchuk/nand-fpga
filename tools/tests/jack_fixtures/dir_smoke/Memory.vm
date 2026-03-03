@@ -1,0 +1,3 @@
+function Memory.alloc 0
+push constant 2048
+return

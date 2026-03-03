@@ -1,0 +1,284 @@
+// SnakeLite VM demo for Hack FPGA.
+// Controls: W/A/S/D (uppercase or lowercase).
+// Fixed 4-segment snake (head + 3 tail), wrap at board edges.
+// Board is intentionally limited to 8x32 words (top half of fpga_fit screen)
+// so the default UART viewer window (rows=32) always shows the full game.
+
+function Sys.init 7
+// locals:
+// 0 tail3, 1 tail2, 2 tail1, 3 head, 4 dir, 5 key, 6 next
+//
+// NOTE: the launcher already clears SCREEN before execution, so we skip an
+// in-program clear loop here to keep startup and controls responsive on FPGA.
+
+// Initial direction = right.
+push constant 0
+pop local 4
+
+// Initial snake offsets in upper half of fpga_fit window for immediate visibility.
+push constant 67
+pop local 0
+push constant 68
+pop local 1
+push constant 69
+pop local 2
+push constant 70
+pop local 3
+
+// Draw 4 initial segments.
+push constant 16384
+push local 0
+add
+pop pointer 1
+push constant 0
+not
+pop that 0
+
+push constant 16384
+push local 1
+add
+pop pointer 1
+push constant 0
+not
+pop that 0
+
+push constant 16384
+push local 2
+add
+pop pointer 1
+push constant 0
+not
+pop that 0
+
+push constant 16384
+push local 3
+add
+pop pointer 1
+push constant 0
+not
+pop that 0
+
+label MAIN_LOOP
+// key = KBD
+push constant 24576
+pop pointer 1
+push that 0
+pop local 5
+
+// If key==0 skip direction update.
+push local 5
+push constant 0
+eq
+if-goto AFTER_KEY
+
+// W/w -> up (dir=3)
+push local 5
+push constant 87
+eq
+if-goto SET_UP
+push local 5
+push constant 119
+eq
+if-goto SET_UP
+push local 5
+push constant 131
+eq
+if-goto SET_UP
+
+// A/a -> left (dir=1)
+push local 5
+push constant 65
+eq
+if-goto SET_LEFT
+push local 5
+push constant 97
+eq
+if-goto SET_LEFT
+push local 5
+push constant 130
+eq
+if-goto SET_LEFT
+
+// S/s -> down (dir=2)
+push local 5
+push constant 83
+eq
+if-goto SET_DOWN
+push local 5
+push constant 115
+eq
+if-goto SET_DOWN
+push local 5
+push constant 133
+eq
+if-goto SET_DOWN
+
+// D/d -> right (dir=0)
+push local 5
+push constant 68
+eq
+if-goto SET_RIGHT
+push local 5
+push constant 100
+eq
+if-goto SET_RIGHT
+push local 5
+push constant 132
+eq
+if-goto SET_RIGHT
+goto AFTER_KEY
+
+label SET_UP
+push local 4
+push constant 2
+eq
+if-goto AFTER_KEY
+push constant 3
+pop local 4
+goto AFTER_KEY
+label SET_LEFT
+push local 4
+push constant 0
+eq
+if-goto AFTER_KEY
+push constant 1
+pop local 4
+goto AFTER_KEY
+label SET_DOWN
+push local 4
+push constant 3
+eq
+if-goto AFTER_KEY
+push constant 2
+pop local 4
+goto AFTER_KEY
+label SET_RIGHT
+push local 4
+push constant 1
+eq
+if-goto AFTER_KEY
+push constant 0
+pop local 4
+goto AFTER_KEY
+
+label AFTER_KEY
+// Branch by dir.
+push local 4
+push constant 0
+eq
+if-goto MOVE_RIGHT
+push local 4
+push constant 1
+eq
+if-goto MOVE_LEFT
+push local 4
+push constant 2
+eq
+if-goto MOVE_DOWN
+goto MOVE_UP
+
+label MOVE_RIGHT
+// next = (head & 7)==7 ? head-7 : head+1
+push local 3
+push constant 7
+and
+push constant 7
+eq
+if-goto RIGHT_WRAP
+push local 3
+push constant 1
+add
+pop local 6
+goto MOVE_DONE
+label RIGHT_WRAP
+push local 3
+push constant 7
+sub
+pop local 6
+goto MOVE_DONE
+
+label MOVE_LEFT
+// next = (head & 7)==0 ? head+7 : head-1
+push local 3
+push constant 7
+and
+push constant 0
+eq
+if-goto LEFT_WRAP
+push local 3
+push constant 1
+sub
+pop local 6
+goto MOVE_DONE
+label LEFT_WRAP
+push local 3
+push constant 7
+add
+pop local 6
+goto MOVE_DONE
+
+label MOVE_DOWN
+// next = head<248 ? head+8 : head-248
+push local 3
+push constant 248
+lt
+if-goto DOWN_NORM
+push local 3
+push constant 248
+sub
+pop local 6
+goto MOVE_DONE
+label DOWN_NORM
+push local 3
+push constant 8
+add
+pop local 6
+goto MOVE_DONE
+
+label MOVE_UP
+// next = head<8 ? head+248 : head-8
+push local 3
+push constant 8
+lt
+if-goto UP_WRAP
+push local 3
+push constant 8
+sub
+pop local 6
+goto MOVE_DONE
+label UP_WRAP
+push local 3
+push constant 248
+add
+pop local 6
+goto MOVE_DONE
+
+label MOVE_DONE
+// Draw new head.
+push constant 16384
+push local 6
+add
+pop pointer 1
+push constant 0
+not
+pop that 0
+
+// Erase oldest tail.
+push constant 16384
+push local 0
+add
+pop pointer 1
+push constant 0
+pop that 0
+
+// Shift tail and update head.
+push local 1
+pop local 0
+push local 2
+pop local 1
+push local 3
+pop local 2
+push local 6
+pop local 3
+
+goto MAIN_LOOP

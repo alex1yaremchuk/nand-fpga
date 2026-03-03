@@ -1,0 +1,73 @@
+function Screen.clearScreen 0
+push constant 0
+pop static 0
+push constant 0
+pop static 1
+push constant 16384
+push constant 0
+call Memory.poke 2
+pop temp 0
+push constant 3600
+push constant 0
+call Memory.poke 2
+pop temp 0
+push constant 0
+return
+
+function Screen.setColor 0
+push argument 0
+pop static 0
+push constant 0
+return
+
+function Screen.drawPixel 0
+push constant 0
+return
+
+function Screen.drawLine 0
+push constant 0
+return
+
+function Screen.drawRectangle 2
+push static 1
+push constant 1
+add
+pop static 1
+push constant 3600
+push static 1
+call Memory.poke 2
+pop temp 0
+push constant 16384
+push static 1
+call Memory.poke 2
+pop temp 0
+push argument 1
+push constant 32
+call Math.multiply 2
+push constant 16384
+add
+push argument 0
+push constant 16
+call Math.divide 2
+add
+pop local 0
+push static 0
+if-goto SCREEN$RECT_BLACK
+push constant 0
+pop local 1
+goto SCREEN$RECT_COLOR_DONE
+label SCREEN$RECT_BLACK
+push constant 0
+not
+pop local 1
+label SCREEN$RECT_COLOR_DONE
+push local 0
+push local 1
+call Memory.poke 2
+pop temp 0
+push constant 0
+return
+
+function Screen.drawCircle 0
+push constant 0
+return

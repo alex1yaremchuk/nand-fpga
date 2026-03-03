@@ -1,0 +1,15 @@
+class Sys {
+    static int result;
+
+    function void init() {
+        var Counter c;
+        let c = Counter.new(2);
+        do c.inc();
+        do c.inc();
+        let result = c.get();
+        while (true) {
+            let result = result;
+        }
+        return;
+    }
+}

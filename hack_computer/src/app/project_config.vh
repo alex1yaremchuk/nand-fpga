@@ -17,13 +17,17 @@
     `define CFG_USE_SCREEN_BRAM 1
 `else
     `define CFG_PROFILE_NAME "fpga_fit"
-    `define CFG_ROM_ADDR_W 13          // 8K words
-    `define CFG_SCREEN_ADDR_W 13       // 8K words (set 12 for 4K if needed)
+    `define CFG_ROM_ADDR_W 14          // 16K words
+    `define CFG_SCREEN_ADDR_W 9        // 512 words -> 128x64 pixels
     `define CFG_USE_SCREEN_BRAM 1
 `endif
 
 `define CFG_RAM16K_USE_BRAM 1
 `define CFG_RAM16K_RAM4K_USE_BRAM 1
+
+// Experimental external DDR3 backend for RAM/SCREEN on Tang Primer 20K.
+// Disabled by default because current board constraints lock conflicting banks at 3.3V.
+//`define CFG_ENABLE_DDR3_MEM
 
 // UART monitor defaults.
 // Enable bridge by adding -DCFG_ENABLE_UART_BRIDGE in build flags.

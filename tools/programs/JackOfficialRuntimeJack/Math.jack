@@ -1,0 +1,117 @@
+class Math {
+    function int abs(int x) {
+        if (x < 0) {
+            return -x;
+        }
+        return x;
+    }
+
+    function int min(int a, int b) {
+        if (a < b) {
+            return a;
+        }
+        return b;
+    }
+
+    function int max(int a, int b) {
+        if (a > b) {
+            return a;
+        }
+        return b;
+    }
+
+    function int multiply(int x, int y) {
+        var int result;
+        var int a;
+        var int b;
+        var int neg;
+        var int t;
+
+        let result = 0;
+        let a = x;
+        let b = y;
+        let neg = 0;
+
+        if (a < 0) {
+            let a = -a;
+            let neg = 1 - neg;
+        }
+        if (b < 0) {
+            let b = -b;
+            let neg = 1 - neg;
+        }
+
+        if (b > a) {
+            let t = a;
+            let a = b;
+            let b = t;
+        }
+
+        while (b > 0) {
+            let result = result + a;
+            let b = b - 1;
+        }
+
+        if (neg = 0) {
+            return result;
+        }
+        return -result;
+    }
+
+    function int divide(int x, int y) {
+        var int q;
+        var int a;
+        var int b;
+        var int neg;
+
+        if (y = 0) {
+            return 0;
+        }
+
+        let q = 0;
+        let a = x;
+        let b = y;
+        let neg = 0;
+
+        if (a < 0) {
+            let a = -a;
+            let neg = 1 - neg;
+        }
+        if (b < 0) {
+            let b = -b;
+            let neg = 1 - neg;
+        }
+
+        while (~(a < b)) {
+            let a = a - b;
+            let q = q + 1;
+        }
+
+        if (neg = 0) {
+            return q;
+        }
+        return -q;
+    }
+
+    function int sqrt(int x) {
+        var int n;
+        var int odd;
+        var int root;
+
+        if (x < 0) {
+            return 0;
+        }
+
+        let n = x;
+        let odd = 1;
+        let root = 0;
+
+        while (~(n < odd)) {
+            let n = n - odd;
+            let odd = odd + 2;
+            let root = root + 1;
+        }
+
+        return root;
+    }
+}

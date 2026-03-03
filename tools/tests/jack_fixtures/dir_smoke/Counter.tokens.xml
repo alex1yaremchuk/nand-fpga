@@ -1,0 +1,16 @@
+<tokens>
+  <keyword> class </keyword>
+  <identifier> Counter </identifier>
+  <symbol> { </symbol>
+  <keyword> function </keyword>
+  <keyword> int </keyword>
+  <identifier> four </identifier>
+  <symbol> ( </symbol>
+  <symbol> ) </symbol>
+  <symbol> { </symbol>
+  <keyword> return </keyword>
+  <integerConstant> 4 </integerConstant>
+  <symbol> ; </symbol>
+  <symbol> } </symbol>
+  <symbol> } </symbol>
+</tokens>

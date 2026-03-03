@@ -1,0 +1,108 @@
+function String.new 1
+push argument 0
+push constant 1
+add
+call Memory.alloc 1
+pop local 0
+push local 0
+pop pointer 1
+push constant 0
+pop that 0
+push local 0
+return
+
+function String.dispose 0
+push argument 0
+call Memory.deAlloc 1
+pop temp 0
+push constant 0
+return
+
+function String.appendChar 1
+push argument 0
+pop pointer 1
+push that 0
+pop local 0
+push argument 0
+push local 0
+add
+push constant 1
+add
+pop pointer 1
+push argument 1
+pop that 0
+push argument 0
+pop pointer 1
+push local 0
+push constant 1
+add
+pop that 0
+push argument 0
+return
+
+function String.eraseLastChar 1
+push argument 0
+pop pointer 1
+push that 0
+pop local 0
+push local 0
+push constant 0
+eq
+if-goto STRING$ERASE_DONE
+push argument 0
+pop pointer 1
+push local 0
+push constant 1
+sub
+pop that 0
+label STRING$ERASE_DONE
+push argument 0
+return
+
+function String.length 0
+push argument 0
+pop pointer 1
+push that 0
+return
+
+function String.charAt 0
+push argument 0
+push argument 1
+add
+push constant 1
+add
+pop pointer 1
+push that 0
+return
+
+function String.setCharAt 0
+push argument 0
+push argument 1
+add
+push constant 1
+add
+pop pointer 1
+push argument 2
+pop that 0
+push constant 0
+return
+
+function String.intValue 0
+push constant 0
+return
+
+function String.setInt 0
+push constant 0
+return
+
+function String.newLine 0
+push constant 128
+return
+
+function String.backSpace 0
+push constant 129
+return
+
+function String.doubleQuote 0
+push constant 34
+return

@@ -1,0 +1,12 @@
+class Counter {
+    field int value;
+
+    method void set(int seed) {
+        let value = seed;
+        return;
+    }
+
+    method int get() {
+        return value;
+    }
+}

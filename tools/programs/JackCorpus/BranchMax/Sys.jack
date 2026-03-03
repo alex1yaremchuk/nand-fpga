@@ -1,0 +1,17 @@
+class Sys {
+    static int result;
+
+    function void init() {
+        if (true) {
+            let result = 11;
+        } else {
+            let result = 7;
+        }
+
+        while (true) {
+            let result = result;
+        }
+
+        return;
+    }
+}

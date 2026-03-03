@@ -1,0 +1,36 @@
+class Memory {
+    static int heapPtr;
+
+    function void init() {
+        let heapPtr = 2048;
+        return;
+    }
+
+    function int alloc(int size) {
+        var int base;
+        if (heapPtr = 0) {
+            let heapPtr = 2048;
+        }
+        let base = heapPtr;
+        let heapPtr = heapPtr + size;
+        return base;
+    }
+
+    function void deAlloc(Array o) {
+        let o = o;
+        return;
+    }
+
+    function int peek(int address) {
+        var Array p;
+        let p = address;
+        return p[0];
+    }
+
+    function void poke(int address, int value) {
+        var Array p;
+        let p = address;
+        let p[0] = value;
+        return;
+    }
+}

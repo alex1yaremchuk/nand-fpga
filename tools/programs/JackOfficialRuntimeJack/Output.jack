@@ -1,0 +1,52 @@
+class Output {
+    static int intIndex;
+    static int charIndex;
+    static int row;
+    static int col;
+
+    function void printChar(int c) {
+        do Memory.poke(3700 + charIndex, c);
+        let charIndex = charIndex + 1;
+        return;
+    }
+
+    function void printString(String s) {
+        var int i;
+        var int n;
+        let n = s.length();
+        let i = 0;
+        while (i < n) {
+            do Output.printChar(s.charAt(i));
+            let i = i + 1;
+        }
+        return;
+    }
+
+    function void printInt(int x) {
+        do Memory.poke(3500 + intIndex, x);
+        let intIndex = intIndex + 1;
+        return;
+    }
+
+    function void println() {
+        do Output.printChar(10);
+        return;
+    }
+
+    function void backSpace() {
+        if (charIndex = 0) {
+            return;
+        }
+        let charIndex = charIndex - 1;
+        do Memory.poke(3700 + charIndex, 0);
+        return;
+    }
+
+    function void moveCursor(int i, int j) {
+        let row = i;
+        let col = j;
+        do Memory.poke(3598, i);
+        do Memory.poke(3599, j);
+        return;
+    }
+}
